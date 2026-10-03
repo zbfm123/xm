@@ -50,6 +50,13 @@ public class RedisTestConfig {
 
         when(template.opsForValue()).thenReturn(valueOps);
 
+        // 无 TTL 的写入（AiResultCache.put 用的就是这个重载）
+        doAnswer(inv -> {
+            STORE.put(inv.getArgument(0), new Entry(inv.getArgument(1), null));
+            return null;
+        }).when(valueOps).set(anyString(), anyString());
+
+        // 带 TTL 的写入（TokenBlacklist 用的重载）
         doAnswer(inv -> {
             String key = inv.getArgument(0);
             String value = inv.getArgument(1);
@@ -60,10 +67,50 @@ public class RedisTestConfig {
             return null;
         }).when(valueOps).set(anyString(), anyString(), any(Duration.class));
 
+        // 读取：惰性过期，与真实 Redis 的语义一致
+        doAnswer(inv -> {
+            String key = inv.getArgument(0);
+            Entry e = STORE.get(key);
+            if (e == null) {
+                return null;
+            }
+            if (!e.alive()) {
+                STORE.remove(key);
+                return null;
+            }
+            return e.value();
+        }).when(valueOps).get(anyString());
+
         doAnswer(inv -> STORE.containsKey(inv.getArgument(0)))
                 .when(template).hasKey(anyString());
 
+        // 供 AiResultCache 使用：按前缀列出键 + 批量删除
+        doAnswer(inv -> {
+            String pattern = inv.getArgument(0);
+            String regex = pattern.replace("*", ".*");
+            STORE.entrySet().removeIf(e -> !e.getValue().alive());
+            return STORE.keySet().stream()
+                    .filter(k -> k.matches(regex))
+                    .collect(java.util.stream.Collectors.toSet());
+        }).when(template).keys(anyString());
+
+        doAnswer(inv -> {
+            java.util.Collection<String> keys = inv.getArgument(0);
+            long removed = 0;
+            for (String k : keys) {
+                if (STORE.remove(k) != null) {
+                    removed++;
+                }
+            }
+            return removed;
+        }).when(template).delete(any(java.util.Collection.class));
+
         return template;
+    }
+
+    /** 写入一个缓存条目，供测试预先置入 AI 结果。 */
+    public static void put(String key, String value) {
+        STORE.put(key, new Entry(value, null));
     }
 
     /** 每个测试前清空，避免测试之间互相影响。 */

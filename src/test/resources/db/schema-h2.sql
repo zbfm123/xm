@@ -29,3 +29,33 @@ CREATE TABLE IF NOT EXISTS sys_user (
     PRIMARY KEY (id),
     CONSTRAINT uk_user_tenant_username UNIQUE (tenant_id, username)
 );
+
+-- 与 db/schema.sql 保持一致（去掉 MySQL 专有的 ENGINE / COMMENT / ON UPDATE）
+CREATE TABLE IF NOT EXISTS contract (
+    id                BIGINT       NOT NULL AUTO_INCREMENT,
+    tenant_id         BIGINT       NOT NULL,
+    title             VARCHAR(255) NOT NULL,
+    original_filename VARCHAR(255) NOT NULL,
+    file_hash         CHAR(64)     NOT NULL,
+    text_hash         CHAR(64)     NULL,
+    storage_path      VARCHAR(512) NOT NULL,
+    file_size         BIGINT       NOT NULL,
+    status            VARCHAR(32)  NOT NULL,
+    deleted           TINYINT      NOT NULL DEFAULT 0,
+    created_at        TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at        TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id)
+);
+
+CREATE TABLE IF NOT EXISTS contract_text (
+    id                  BIGINT      NOT NULL AUTO_INCREMENT,
+    tenant_id           BIGINT      NOT NULL,
+    contract_id         BIGINT      NOT NULL,
+    text                CLOB        NOT NULL,
+    text_hash           CHAR(64)    NOT NULL,
+    offset_map          CLOB        NULL,
+    no_extractable_text TINYINT     NOT NULL DEFAULT 0,
+    created_at          TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    CONSTRAINT uk_contract_text_contract UNIQUE (contract_id)
+);

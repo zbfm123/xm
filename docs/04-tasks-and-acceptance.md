@@ -93,20 +93,27 @@ tags:
 
 ### 进行中
 
-- [ ] T-005 租户上下文与强制隔离  
-  模块：[auth](modules/auth.md) ｜ 前置：T-004 ✅ ｜ 验收：A-01 通过；有"忘记带 tenantId"的失败测试
+（当前无 —— T-009 待开始）
 
 ### 已验收
 
 - [x] T-001 项目骨架与依赖收敛  
-  模块：— ｜ 任务卡：[T-001](tasks/T-001-project-skeleton.md) ｜ 验收证据：`mvn test` → 2/2（Java 21.0.12.1 / Spring Boot 3.3.5）｜ 完成日期：2026-10-03
+  模块：— ｜ 任务卡：[T-001](tasks/T-001-project-skeleton.md) ｜ 验收证据：`mvn test` → 2/2 ｜ 完成日期：2026-10-03
 - [x] T-002 本机中间件连通  
-  模块：— ｜ 验收证据：MySQL 连接成功（8.0.40）；Redis `ping` → `PONG` ｜ 完成日期：2026-10-03
+  模块：— ｜ 验收证据：MySQL 8.0.40 与 Redis 3.2.100 连通 ｜ 完成日期：2026-10-03
 - [x] T-003 表结构与初始数据  
-  模块：[auth](modules/auth.md)、[parse](modules/parse.md) ｜ 验收证据：真实 MySQL 中生成 `tenant`、`sys_user` 两表 + 2 租户 3 账号，中文 UTF-8 正确 ｜ 完成日期：2026-10-03
+  模块：[auth](modules/auth.md)、[parse](modules/parse.md) ｜ 验收证据：真实 MySQL 中建出 `tenant`、`sys_user`、`contract`、`contract_text` 四表 ｜ 完成日期：2026-10-03
 - [x] T-004 登录与 JWT 签发校验  
-  模块：[auth](modules/auth.md) ｜ 任务卡：[T-004](tasks/T-004-auth-login-jwt.md) ｜ 验收证据：`mvn test` → **25/25 通过**；真实 MySQL 上 11 项 HTTP 端到端验证全部符合预期 ｜ 完成日期：2026-10-03  
-  备注：测试暴露"登出不幂等"的设计问题，已修代码而非改测试（`/api/auth/logout` 移入白名单）
+  模块：[auth](modules/auth.md) ｜ 任务卡：[T-004](tasks/T-004-auth-login-jwt.md) ｜ 验收证据：真实 MySQL 上 11 项 HTTP 端到端验证全过 ｜ 完成日期：2026-10-03  
+  备注：测试暴露"登出不幂等"的设计问题，已修代码而非改测试
+- [x] **T-005 租户上下文与强制隔离**  
+  模块：[auth](modules/auth.md) ｜ 任务卡：[T-005~008](tasks/T-005-008-tenant-and-contract-crud.md) ｜ 验收证据：**A-01 通过**；`TenantScopeArchitectureTest` 扫描全部 Mapper SQL，缺 `tenant_id` 即构建失败（**已故意破坏验证过会失败**）｜ 完成日期：2026-10-03
+- [x] **T-006 合同上传（幂等 + 本地存储）**  
+  模块：[parse](modules/parse.md) ｜ 验收证据：同文件重传返回同一 id 且 `idempotent=true`；跨租户同文件各自独立；魔数伪装/超限/空文件均被拒 ｜ 完成日期：2026-10-03
+- [x] **T-007 合同列表与详情（分页/搜索/状态筛选）**  
+  模块：[parse](modules/parse.md) ｜ 验收证据：分页、关键字、状态筛选均验证；`size` 收敛到 100；非法状态返回 **400**（真实环境复验发现曾返回 500）｜ 完成日期：2026-10-03
+- [x] **T-008 合同删除（级联清理 + 定向清缓存）**  
+  模块：[parse](modules/parse.md)、[workflow](modules/workflow.md) ｜ 验收证据：软删除后详情 404、列表不再出现；**AI 缓存按 `textHash` 定向清理**；删除后重传同一文件得到新记录；重复删除幂等 ｜ 完成日期：2026-10-03
 
 ## 里程碑（按天）
 

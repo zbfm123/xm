@@ -126,8 +126,28 @@ powershell -ExecutionPolicy Bypass -File .\push.ps1 -Message "chore: initial com
 | `git push` 超时 | `github.com:443` 被封锁 | SSH 改走 `ssh.github.com:443`（见上文配置） |
 | 脚本报 `无法加载文件...禁止运行脚本` | PowerShell 执行策略限制 | 用 `powershell -ExecutionPolicy Bypass -File .\push.ps1` |
 | `.ps1` 中文注释导致语法错误 | **Windows PowerShell 5.1 读取无 BOM 的 UTF-8 文件时按 GBK 解码** | 脚本必须保存为 **UTF-8 with BOM**，且不要移除 BOM |
+| `javac` 报 `需要 class、interface、enum 或 record` | **`.java` 文件带了 BOM**（PowerShell 的 `Set-Content -Encoding UTF8` 会自动加） | Java/资源文件必须**无 BOM** UTF-8；`push.ps1` 第 2 步已自动拦截 |
 | `push` 被拒绝（non-fast-forward） | 建仓库时勾了 README | `git pull --rebase origin main` 后再 push |
 | `.mvn/jvm.config` 报 `ClassNotFoundException: #` | 该文件由 JVM 直接读取，中文注释被按 GBK 解析 | **必须纯 ASCII** |
+
+> [!warning] BOM 的两种相反要求，别搞混
+> | 文件类型 | 要不要 BOM | 带错的后果 |
+> | --- | --- | --- |
+> | `.ps1`（Windows PowerShell 读） | **必须有** | 无 BOM → 中文注释按 GBK 解码 → 语法错误、脚本跑不起来 |
+> | `.java` / `.yml` / `.sql` / `.xml` | **必须没有** | 有 BOM → `javac` 报"需要 class、interface、enum 或 record" |
+>
+> 两个坑在同一个会话里都踩过一次。现在 `push.ps1` 的**第 2 步**会自动扫描并拦截 Java 侧的问题，
+> **这类事不该靠人记得**。
+
+> [!tip] 改文件时的安全做法
+> 避免用 `Set-Content -Encoding UTF8` 改 `.java` 文件（会加 BOM）。
+> 需要脚本化改写时用：
+> ```powershell
+> $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+> [System.IO.File]::WriteAllText($path, $text, $utf8NoBom)
+> ```
+> 另外，**不要用正则做全局标识符替换**——本次就发生过 `\bPASSWORD\b` 把
+> `PasswordEncoder` 一起改掉、还破坏了 Javadoc 的事故。
 
 ## 四、敏感信息红线
 
