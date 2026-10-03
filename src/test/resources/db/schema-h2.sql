@@ -114,3 +114,29 @@ CREATE TABLE IF NOT EXISTS ai_finding (
     created_at     TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id)
 );
+
+-- 人工复核动作（只追加）。
+-- 注意：H2 侧**不建** BEFORE UPDATE/DELETE 触发器。
+--   MySQL 的 SIGNAL 语法 H2 不支持，硬凑一个会变成"测试里测的是另一套东西"。
+--   因此：
+--     · 应用层的只追加由 Mapper 接口不含 update/delete 保证（有测试断言）
+--     · 数据库层的强制由 MySQL 触发器保证（见 schema.sql），在真实库上单独验证
+--   这是"H2 镜像与 MySQL 不完全等价"这笔技术债的又一处具体表现。
+CREATE TABLE IF NOT EXISTS review_action (
+    id              BIGINT        NOT NULL AUTO_INCREMENT,
+    tenant_id       BIGINT        NOT NULL,
+    contract_id     BIGINT        NOT NULL,
+    finding_id      BIGINT        NULL,
+    idempotency_key VARCHAR(128)  NOT NULL,
+    action_code     VARCHAR(32)   NOT NULL,
+    reason          VARCHAR(1024) NULL,
+    operator_id     BIGINT        NOT NULL,
+    operator_name   VARCHAR(64)   NOT NULL,
+    previous_status VARCHAR(32)   NULL,
+    new_status      VARCHAR(32)   NOT NULL,
+    record_hash     CHAR(64)      NOT NULL,
+    previous_hash   CHAR(64)      NOT NULL,
+    created_at      TIMESTAMP(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    CONSTRAINT uk_review_action_idem UNIQUE (tenant_id, idempotency_key)
+);

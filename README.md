@@ -267,6 +267,33 @@ curl.exe -s http://localhost:8080/api/auth/me -H "Authorization: Bearer <token>"
 | `sparse` | 无要素、且自带触发幻觉的标记 | 规则 3 条 `UNDETERMINED`；**AI 审查出现 `EVIDENCE_MISMATCH`** |
 | `risky` | 含四类典型风险条款 | AI 审查产出 4 条 `PENDING` 候选，全部证据已定位 |
 
+### 人工复核与只追加审计
+
+| 端点 | 说明 |
+| --- | --- |
+| `POST /api/contracts/{id}/reviews` | 记录复核动作。body：`{findingId, action, reason, idempotencyKey}`，**幂等** |
+| `GET /api/contracts/{id}/reviews` | 复核历史（按时间正序） |
+| `GET /api/contracts/{id}/reviews/verify` | **哈希链完整性校验**：报告是否被改动过、断点在哪一条 |
+
+复核动作：`ACCEPT`（采纳进正文）/ `REJECT`（驳回）/ `ESCALATE`（升级主管）/
+`NEED_INFO`（退回补充）/ `CONFIRM_NO_RISK`（确认整份合同无风险，合同级动作）。
+
+#### 「只追加」由三层保证
+
+| 层 | 手段 | 防住什么 |
+| --- | --- | --- |
+| 接口 | `ReviewActionMapper` **只有 insert 与 find** | 应用代码想改也找不到方法（有反射测试强制） |
+| 数据库 | `BEFORE UPDATE` / `BEFORE DELETE` **触发器** | 手工 SQL、运维脚本 |
+| 密码学 | **哈希链** | 有 root 权限的人——改动可被检测 |
+
+> [!warning] 哈希链的边界（面试时请主动说明）
+> 它能防**篡改**，**不能防抵赖**。知道算法与字段顺序的人可以重算整条链，
+> 伪造一个自洽的历史。真正的不可抵赖需要**外部时间戳或数字签名**。
+>
+> 另外：**审计记录不随合同删除而消失**。
+> 合同被删了，但"谁在什么时候做了什么判断"这个事实不因此消失。
+> 这是刻意的设计，有测试锁定，请不要"顺手"给它加级联清理。
+
 ### 调试端点（仅 dev / test 环境）
 
 | 端点 | 说明 |

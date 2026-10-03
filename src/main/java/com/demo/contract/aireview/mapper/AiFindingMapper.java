@@ -7,6 +7,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 import java.util.List;
 
@@ -69,4 +70,29 @@ public interface AiFindingMapper {
                AND tenant_id = #{tenantId}
             """)
     int deleteByContract(@Param("contractId") Long contractId, @Param("tenantId") Long tenantId);
+
+    /**
+     * 更新结论状态（人工复核的结果落到这里）。
+     *
+     * <p>为什么 {@code ai_finding} 可以更新，而 {@code review_action} 不可以：
+     * 前者是<b>机器结论的当前状态</b>，会随人工复核演进；
+     * 后者是<b>发生过的事实</b>，事实不会变。
+     * 两者混为一谈就会出现"为了改结论而篡改历史"。
+     *
+     * <p>WHERE 里带 {@code contract_id} 与 {@code tenant_id} 是双重保险：
+     * 即使 findingId 被构造错了，也不会越租户修改。
+     */
+    @Update("""
+            UPDATE ai_finding
+               SET status = #{newStatus},
+                   status_reason = #{statusReason}
+             WHERE id = #{findingId}
+               AND contract_id = #{contractId}
+               AND tenant_id = #{tenantId}
+            """)
+    int updateStatus(@Param("findingId") Long findingId,
+                     @Param("contractId") Long contractId,
+                     @Param("tenantId") Long tenantId,
+                     @Param("newStatus") String newStatus,
+                     @Param("statusReason") String statusReason);
 }

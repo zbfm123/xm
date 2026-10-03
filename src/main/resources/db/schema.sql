@@ -43,9 +43,49 @@ CREATE TABLE IF NOT EXISTS sys_user (
 
 -- ===================================================================
 -- 以下表按后续任务追加（不要提前建，避免与未实现的功能不一致）：
---   Day 4 / T-017  review_task
---   Day 4 / T-018  review_action（只追加）
+--   Day 5 / T-017  review_task
 -- ===================================================================
+
+-- -------------------------------------------------------------------
+-- 人工复核动作（Day 4 / T-018）—— **只追加，永不修改、永不删除**
+--
+-- 这是本项目三个「绝不砍」项之一（不变式 I-06）。表结构本身承担了三重保证：
+--
+--   1. 没有 updated_at / updated_by 列 —— 没有"修改"这个概念
+--   2. 没有软删除列 —— 撤销也是**追加一条反向动作**，而不是改原记录
+--   3. 建了 BEFORE UPDATE / BEFORE DELETE 触发器，从数据库层面拒绝改与删
+--
+-- 为什么需要第 3 条：Mapper 里不写 update/delete 只是"我们不做"，
+-- 任何一次手工 SQL、运维脚本、将来新同事写的代码都能绕过它。
+-- 触发器把"不能改"变成数据库强制的约束。
+--
+-- 哈希链：
+--   record_hash = SHA-256(前一条哈希 | 幂等键 | 合同 | 结论 | 动作 | 操作人 | 时间)
+--   任何一条被改动，其后所有记录的哈希都会对不上，verifyChain 会指出断点位置。
+--
+-- ⚠️ 哈希链防的是**篡改**，不是**抵赖**：知道算法的人可以重算整条链。
+--    真正的不可抵赖需要外部时间戳或签名服务。这是已知限制，必须在面试时主动说明。
+-- -------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS review_action (
+    id              BIGINT        NOT NULL AUTO_INCREMENT,
+    tenant_id       BIGINT        NOT NULL COMMENT '所属租户',
+    contract_id     BIGINT        NOT NULL COMMENT '合同ID',
+    finding_id      BIGINT        NULL COMMENT '被复核的 AI 结论ID；合同级动作可空',
+    idempotency_key VARCHAR(128)  NOT NULL COMMENT '幂等键：重放同一请求不产生新记录',
+    action_code     VARCHAR(32)   NOT NULL COMMENT 'ACCEPT/REJECT/ESCALATE/NEED_INFO/CONFIRM_NO_RISK',
+    reason          VARCHAR(1024) NULL COMMENT '复核理由',
+    operator_id     BIGINT        NOT NULL COMMENT '操作人ID',
+    operator_name   VARCHAR(64)   NOT NULL COMMENT '操作人名称（冗余保存：用户改名不影响历史记录）',
+    previous_status VARCHAR(32)   NULL COMMENT '动作前的结论状态',
+    new_status      VARCHAR(32)   NOT NULL COMMENT '动作后的结论状态',
+    record_hash     CHAR(64)      NOT NULL COMMENT '本条记录哈希（含前一条哈希）',
+    previous_hash   CHAR(64)      NOT NULL COMMENT '前一条记录哈希；链首为 64 个 0',
+    created_at      DATETIME(3)   NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '毫秒精度：同秒内多条也能定序',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_review_action_idem (tenant_id, idempotency_key),
+    KEY idx_review_action_contract (tenant_id, contract_id, id),
+    KEY idx_review_action_finding (tenant_id, finding_id)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT '人工复核动作（只追加）';
 
 -- -------------------------------------------------------------------
 -- 抽取到的合同要素（Day 4 / T-015）
