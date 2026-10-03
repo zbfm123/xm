@@ -6,7 +6,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
-import org.springframework.stereotype.Component;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
@@ -33,7 +32,6 @@ import java.util.Map;
  * <p>请求里带 {@code response_format: json_object}：让模型尽量输出合法 JSON。
  * 但<b>仍然必须做 schema 校验</b>——这个参数只是提高概率，不是保证。
  */
-@Component
 public class DeepSeekClient implements AiClient {
 
     private static final Logger log = LoggerFactory.getLogger(DeepSeekClient.class);

@@ -232,6 +232,41 @@ curl.exe -s http://localhost:8080/api/auth/me -H "Authorization: Bearer <token>"
 > - 中文大写金额只支持到"元"；遇到角分返回"无法判定"而不是猜一个值。
 > - 规则集是硬编码的，未做可视化规则编排。
 
+### 要素抽取与 AI 风险审查
+
+| 端点 | 说明 |
+| --- | --- |
+| `POST /api/contracts/{id}/extract` | 要素抽取（走 AI 通道，默认 Mock）。返回里单列 `mismatch` = 引文无法定位的字段数 |
+| `GET /api/contracts/{id}/elements` | 查询要素，含引文、原文区间、置信度、匹配级别、状态 |
+| `POST /api/contracts/{id}/ai-review` | AI 风险审查。返回 `pending` / `lowConfidence` / `mismatch` / `reportable` |
+| `GET /api/contracts/{id}/ai-findings` | 查询 AI 候选结论。`?reportableOnly=true` 只返回**证据已定位、可进报告正文**的条目 |
+
+`mismatch` 是本模块最重要的健康指标：**它偏高说明模型在改写引文，或提示词需要调整。**
+
+#### 四道闸门：AI 输出如何变成可裁决的结论
+
+```
+模型输出
+  ├─ 1. schema 校验   结构非法 / riskType 越界 / confidence 越界 → 整体丢弃
+  ├─ 2. 证据对齐      引文必须在原文定位到，否则标 EVIDENCE_MISMATCH，不进报告正文
+  ├─ 3. 置信度裁决    模型自评 × 匹配级别权重 × 引文长度惩罚；低于阈值强制人工
+  └─ 4. 状态机        所有条目初始都是候选态，没有"已生效"这个状态
+```
+
+> [!important] 核心思路
+> **不是让模型更准，而是让它的错误变得可检测。**
+>
+> 引文定位不到的结论会被拦下来并转人工。这条路径可以现场演示——
+> 用 `sparse` 模板（它自带触发幻觉的标记）。
+
+#### 示例合同模板（`/api/debug/sample-contract.pdf?template=`）
+
+| 模板 | 用途 | 预期结果 |
+| --- | --- | --- |
+| `well-formed` | 要素齐全、无风险条款 | 规则 4 条全 `PASS`；AI 审查 0 条候选 |
+| `sparse` | 无要素、且自带触发幻觉的标记 | 规则 3 条 `UNDETERMINED`；**AI 审查出现 `EVIDENCE_MISMATCH`** |
+| `risky` | 含四类典型风险条款 | AI 审查产出 4 条 `PENDING` 候选，全部证据已定位 |
+
 ### 调试端点（仅 dev / test 环境）
 
 | 端点 | 说明 |

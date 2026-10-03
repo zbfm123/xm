@@ -64,28 +64,39 @@ class DebugPageTest {
         assertThat(html).contains("sample-contract.pdf");
         assertThat(html).contains("要素齐全");
         assertThat(html).contains("要素缺失");
+        // AI 抽取与审查面板必须在：这是项目的差异化能力，页面上要能点到
+        assertThat(html).contains("AI 要素抽取与风险审查");
+        assertThat(html).contains("doExtract");
+        assertThat(html).contains("doAiReview");
+        assertThat(html).contains("reportableOnly");
         // 页面自带 charset 声明，避免浏览器按系统编码猜
         assertThat(html).containsIgnoringCase("charset=UTF-8");
     }
 
     @Test
-    @DisplayName("两个示例合同模板都能生成，且大小不同（对应两种规则结果）")
+    @DisplayName("三种示例合同模板都能生成，且内容各不相同")
     void sampleContractsShouldBeAvailable() {
         var wellFormed = rest.getForEntity("/api/debug/sample-contract.pdf?template=well-formed", byte[].class);
         var sparse = rest.getForEntity("/api/debug/sample-contract.pdf?template=sparse", byte[].class);
+        var risky = rest.getForEntity("/api/debug/sample-contract.pdf?template=risky", byte[].class);
 
         assertThat(wellFormed.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(sparse.getStatusCode()).isEqualTo(HttpStatus.OK);
+        // risky 模板用于演示 AI 审查的正向链路，缺了它演示时没有可看的风险条款
+        assertThat(risky.getStatusCode()).isEqualTo(HttpStatus.OK);
 
         assertThat(wellFormed.getBody()).isNotNull();
         assertThat(sparse.getBody()).isNotNull();
+        assertThat(risky.getBody()).isNotNull();
 
         // 都必须是合法 PDF（魔数）
-        assertThat(new String(wellFormed.getBody(), 0, 5, StandardCharsets.US_ASCII)).isEqualTo("%PDF-");
-        assertThat(new String(sparse.getBody(), 0, 5, StandardCharsets.US_ASCII)).isEqualTo("%PDF-");
+        for (byte[] body : new byte[][]{wellFormed.getBody(), sparse.getBody(), risky.getBody()}) {
+            assertThat(new String(body, 0, 5, StandardCharsets.US_ASCII)).isEqualTo("%PDF-");
+        }
 
-        // 两个模板内容不同，否则"对比两种规则结果"就无从谈起
+        // 内容必须不同，否则"对比不同结果"无从谈起
         assertThat(wellFormed.getBody().length).isNotEqualTo(sparse.getBody().length);
+        assertThat(risky.getBody().length).isNotEqualTo(wellFormed.getBody().length);
     }
 
     @Test

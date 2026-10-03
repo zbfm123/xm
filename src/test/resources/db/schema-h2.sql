@@ -77,3 +77,40 @@ CREATE TABLE IF NOT EXISTS rule_finding (
     checked_at    TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id)
 );
+
+CREATE TABLE IF NOT EXISTS contract_element (
+    id            BIGINT        NOT NULL AUTO_INCREMENT,
+    tenant_id     BIGINT        NOT NULL,
+    contract_id   BIGINT        NOT NULL,
+    field_key     VARCHAR(64)   NOT NULL,
+    element_value VARCHAR(512)  NULL,
+    quote         VARCHAR(1024) NULL,
+    char_start    INT           NULL,
+    char_end      INT           NULL,
+    confidence    DECIMAL(5,4)  NOT NULL DEFAULT 0,
+    match_level   VARCHAR(16)   NULL,
+    status        VARCHAR(32)   NOT NULL,
+    status_reason VARCHAR(512)  NULL,
+    source        VARCHAR(16)   NOT NULL DEFAULT 'AI',
+    created_at    TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    CONSTRAINT uk_element_contract_field UNIQUE (contract_id, field_key)
+);
+
+CREATE TABLE IF NOT EXISTS ai_finding (
+    id             BIGINT        NOT NULL AUTO_INCREMENT,
+    tenant_id      BIGINT        NOT NULL,
+    contract_id    BIGINT        NOT NULL,
+    risk_type      VARCHAR(64)   NOT NULL,
+    quote          VARCHAR(2048) NOT NULL,
+    char_start     INT           NULL,
+    char_end       INT           NULL,
+    confidence     DECIMAL(5,4)  NOT NULL DEFAULT 0,
+    match_level    VARCHAR(16)   NULL,
+    status         VARCHAR(32)   NOT NULL,
+    status_reason  VARCHAR(512)  NULL,
+    model_version  VARCHAR(64)   NOT NULL,
+    prompt_version VARCHAR(32)   NOT NULL,
+    created_at     TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id)
+);

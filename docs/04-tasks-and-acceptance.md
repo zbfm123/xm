@@ -93,10 +93,13 @@ tags:
 
 ### 进行中
 
-（当前无 —— T-015 待开始）
+（当前无 —— T-017 待开始）
 
 ### 已验收
 
+- [x] **T-015 / T-016 要素抽取 · AI 风险审查 · 证据对齐接入**  
+  模块：[extract](modules/extract.md) / [ai-review](modules/ai-review.md) ｜ 任务卡：[T-015~016](tasks/T-015-016-extraction-and-ai-review.md) ｜ 验收证据：**A-05 / A-06 通过**——真实 MySQL 上要素 4 个字段引文定位 **4 成功 / 0 失败**；风险审查产出 4 条候选，`PENDING` 与 `EVIDENCE_MISMATCH` **在库中分开存储**；无法定位的条目 `char_start IS NULL` 且不出现在可报告列表；跨租户隔离；删除合同级联清理归 0 ｜ 完成日期：2026-10-03  
+  备注：修复 3 个 bug（条件注解未互斥、H2 保留字 + 属性名不一致、删除漏清理新表产生孤儿数据）
 - [x] **T-014 DeepSeek 客户端 · Mock 开关 · 成本上限**  
   模块：[ai-review](modules/ai-review.md) ｜ 任务卡：[T-014](tasks/T-014-ai-client-and-cost-guard.md) ｜ 验收证据：**A-08 的基础**——`enabled=false` 时抛 `AI_UNAVAILABLE` 且不发请求；限流/5xx 重试 1 次、超时与 schema 非法分类正确（schema 非法**不重试**）；单合同超限后**不再发出请求**；预算耗尽明确失败 ｜ 完成日期：2026-10-03  
   备注：Mock 桩的引文取自输入文本，有测试要求**每条引文都能被真实对齐算法命中**

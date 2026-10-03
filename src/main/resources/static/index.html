@@ -249,9 +249,48 @@
     </p>
   </div>
 
-  <!-- 6. 日志 -->
+  <!-- 6. AI 要素抽取与风险审查 -->
   <div class="card">
-    <h2><span class="step">6</span>请求日志</h2>
+    <h2><span class="step">6</span>AI 要素抽取与风险审查
+      <span class="muted" id="aiChannel" style="font-weight:400;font-size:12px"></span>
+    </h2>
+    <div class="row">
+      <div class="fixed"><button onclick="doExtract()">要素抽取</button></div>
+      <div class="fixed"><button onclick="doAiReview()">AI 风险审查</button></div>
+      <div class="fixed"><button class="ghost" onclick="loadElements()">看要素</button></div>
+      <div class="fixed"><button class="ghost" onclick="loadAiFindings()">看结论</button></div>
+      <div class="fixed"><button class="ghost" onclick="loadAiFindings(true)">只看可进正文</button></div>
+    </div>
+
+    <p class="muted" style="margin:10px 0 8px">
+      <b>核心机制：证据对齐。</b>模型给出的每条引文都要回到原文核对——
+      定位得到才保留，定位不到就标为证据不匹配、<b>不进报告正文</b>。
+      这条链路默认走 Mock 桩（<span class="kbd">AI_ENABLED=false</span>），零额度消耗。
+    </p>
+
+    <div id="aiSummary" class="muted" style="margin-bottom:8px"></div>
+
+    <table>
+      <thead>
+        <tr><th style="width:150px">字段 / 风险类型</th><th style="width:190px">值 / 引文</th>
+            <th style="width:120px">证据</th><th>位置</th></tr>
+      </thead>
+      <tbody id="aiBody"><tr><td colspan="4" class="muted">暂无数据，先执行抽取或审查</td></tr></tbody>
+    </table>
+
+    <p class="muted" style="margin:10px 0 0">
+      看两处对比即可理解本项目的核心设计：<br>
+      · <b>要素抽取</b>里，引文定位不到的字段会落库为 <span class="kbd">UNKNOWN</span>（而不是被丢掉），
+        这样"抽过但失败"与"从没抽过"可以区分。<br>
+      · <b>AI 审查</b>里，所有条目的状态都是候选态（<span class="kbd">PENDING</span> /
+        <span class="kbd">LOW_CONFIDENCE</span> / <span class="kbd">EVIDENCE_MISMATCH</span>），
+        <b>没有"已生效"这个状态</b>——采信权归人工。
+    </p>
+  </div>
+
+  <!-- 7. 日志 -->
+  <div class="card">
+    <h2><span class="step">7</span>请求日志</h2>
     <div class="log" id="log"></div>
   </div>
 
@@ -294,6 +333,9 @@ async function checkHealth() {
     const r = await fetch('/api/health');
     const h = await r.json();
     $('healthTag').textContent = `服务正常 · AI 通道=${h.aiEnabled ? '真实调用' : 'Mock 桩'}`;
+    $('aiChannel').textContent = h.aiEnabled
+      ? `通道：真实调用（${h.aiModel}，消耗额度）`
+      : `通道：Mock 桩（${h.aiModel} 的桩实现，零额度消耗）`;
     log(`健康检查通过，aiEnabled=${h.aiEnabled}, model=${h.aiModel}`, 'ok');
   } catch (e) {
     $('healthTag').textContent = '服务不可达';
@@ -523,6 +565,111 @@ async function loadFindings(onlyHits) {
     </tr>`;
   }).join('');
   log(`结论已加载：${list.length} 条`, 'ok');
+}
+
+// ---------- 6. AI 要素抽取与风险审查 ----------
+function requireContract() {
+  if (!currentId) { log('请先在列表里选择一份合同', 'warn'); return false; }
+  return true;
+}
+
+function badge(status) {
+  const map = {
+    CONFIRMED: 'ok', PENDING: 'ok',
+    LOW_CONFIDENCE: 'warn', UNKNOWN: 'muted', CONFLICT: 'err',
+    EVIDENCE_MISMATCH: 'err', EVIDENCE_AMBIGUOUS: 'warn'
+  };
+  return `<span class="kbd ${map[status] || ''}">${esc(status)}</span>`;
+}
+
+async function doExtract() {
+  if (!requireContract()) return;
+  log('要素抽取中…（Mock 桩，不消耗额度）');
+  const r = await api('POST', `/api/contracts/${currentId}/extract`);
+  if (!r.ok) {
+    log(`抽取失败：HTTP ${r.status} ${r.data.code || ''} ${r.data.message || ''}`, 'err');
+    if (r.data && r.data.code === 'AI_UNAVAILABLE') {
+      log('　　AI 通道不可用——这是降级状态，规则校验不受影响', 'warn');
+    }
+    return;
+  }
+  const d = r.data;
+  log(`抽取完成：共 ${d.total} 个字段，引文定位成功 ${d.aligned}，失败 ${d.mismatch}` +
+      `（成功率 ${d.alignmentRate}）provider=${d.provider}`, d.mismatch > 0 ? 'warn' : 'ok');
+  log('　　' + d.message, d.mismatch > 0 ? 'warn' : 'ok');
+  $('aiSummary').innerHTML =
+    `<b>要素抽取</b>：${d.total} 个字段，引文定位 <b>${d.aligned}</b> 成功 / ` +
+    `<b>${d.mismatch}</b> 失败 · 通道 <span class="kbd">${esc(d.provider)}</span>`;
+  loadElements();
+}
+
+async function loadElements() {
+  if (!requireContract()) return;
+  const r = await api('GET', `/api/contracts/${currentId}/elements`);
+  if (!r.ok) { log(`读取要素失败：HTTP ${r.status}`, 'err'); return; }
+  if (!r.data.length) {
+    $('aiBody').innerHTML = '<tr><td colspan="4" class="muted">暂无要素，先执行「要素抽取」</td></tr>';
+    return;
+  }
+  $('aiBody').innerHTML = r.data.map(e => {
+    const located = e.charStart !== null && e.charStart !== undefined;
+    return `<tr>
+      <td><b>${esc(e.fieldKey)}</b><br><span class="muted" style="font-size:11px">${esc(e.source)}</span></td>
+      <td>${located ? esc(e.elementValue || '') : '<span class="muted">（未采信）</span>'}
+          <br><span class="muted" style="font-size:11px">${esc((e.quote || '').slice(0, 40))}</span></td>
+      <td>${badge(e.status)}<br><span class="muted" style="font-size:11px">${esc(e.matchLevel || '—')}
+          · ${e.confidence}</span></td>
+      <td class="muted" style="font-size:11px">${located
+          ? `[${e.charStart},${e.charEnd})`
+          : esc(e.statusReason || '')}</td>
+    </tr>`;
+  }).join('');
+  log(`已加载 ${r.data.length} 个要素`, 'ok');
+}
+
+async function doAiReview() {
+  if (!requireContract()) return;
+  log('AI 风险审查中…（Mock 桩，不消耗额度）');
+  const r = await api('POST', `/api/contracts/${currentId}/ai-review`);
+  if (!r.ok) {
+    log(`审查失败：HTTP ${r.status} ${r.data.code || ''} ${r.data.message || ''}`, 'err');
+    if (r.data && r.data.code === 'AI_UNAVAILABLE') {
+      log('　　AI 通道不可用——这是降级状态，规则校验仍可正常使用', 'warn');
+    }
+    return;
+  }
+  const d = r.data;
+  log(`审查完成：共 ${d.total} 条候选；待采信 ${d.pending}，低置信度 ${d.lowConfidence}，` +
+      `证据不匹配 ${d.mismatch}；可进报告正文 ${d.reportable} 条`, d.mismatch > 0 ? 'warn' : 'ok');
+  log(`　　${d.message}`, d.mismatch > 0 ? 'warn' : 'ok');
+  log(`　　模型=${d.modelVersion} 提示词=${d.promptVersion} provider=${d.provider}`);
+  $('aiSummary').innerHTML =
+    `<b>AI 审查</b>：${d.total} 条候选，可进正文 <b>${d.reportable}</b> 条，` +
+    `证据不匹配 <b>${d.mismatch}</b> 条（不进正文） · ` +
+    `模型 <span class="kbd">${esc(d.modelVersion)}</span> 提示词 <span class="kbd">${esc(d.promptVersion)}</span>`;
+  loadAiFindings();
+}
+
+async function loadAiFindings(reportableOnly) {
+  if (!requireContract()) return;
+  const r = await api('GET',
+    `/api/contracts/${currentId}/ai-findings?reportableOnly=${reportableOnly ? 'true' : 'false'}`);
+  if (!r.ok) { log(`读取 AI 结论失败：HTTP ${r.status}`, 'err'); return; }
+  if (!r.data.length) {
+    $('aiBody').innerHTML = '<tr><td colspan="4" class="muted">暂无 AI 结论'
+      + (reportableOnly ? '（可进报告正文的条目为 0）' : '，先执行「AI 风险审查」') + '</td></tr>';
+    return;
+  }
+  $('aiBody').innerHTML = r.data.map(f => `<tr>
+      <td><b>${esc(f.riskType)}</b></td>
+      <td>${esc((f.quote || '').slice(0, 60))}</td>
+      <td>${badge(f.status)}<br><span class="muted" style="font-size:11px">${esc(f.matchLevel || '—')}
+          · ${f.confidence}</span></td>
+      <td class="muted" style="font-size:11px">${f.reportable
+          ? `[${f.charStart},${f.charEnd})`
+          : esc(f.statusReason || '未定位')}</td>
+    </tr>`).join('');
+  log(`已加载 ${r.data.length} 条 AI 结论` + (reportableOnly ? '（仅可进正文）' : ''), 'ok');
 }
 
 checkHealth();

@@ -3,7 +3,6 @@ package com.demo.contract.aireview.client;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -13,10 +12,9 @@ import java.util.Map;
 /**
  * Mock 模型客户端。
  *
- * <p>在 {@code app.ai.enabled=false} 时启用。
- * 用 {@code @ConditionalOnProperty} 而不是 {@code @Primary} 让两个实现互斥：
- * <b>两个 {@code AiClient} bean 同时存在时，注入会变得依赖 bean 名称与顺序，
- * 那种"能跑但说不清"的状态在排查时非常费劲。</b>
+ * <p><b>本类不是 Spring bean</b>：它由 {@link AiClientConfig} 按
+ * {@code app.ai.enabled} 决定是否装配。选谁由那一个显式分支决定，
+ * 不依赖条件注解的求值时机——见该配置类的注释。
  *
  * <p>三个用途：
  * <ol>
@@ -35,9 +33,6 @@ import java.util.Map;
  * <p>做法：从输入里找出含风险关键词的句子，把<b>整句原文</b>作为 quote 返回。
  * 这样对齐必然是 EXACT，而风险判断逻辑本身则由 Mock 的固定规则给出。
  */
-@Component
-@org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(
-        name = "app.ai.enabled", havingValue = "false", matchIfMissing = true)
 public class MockAiClient implements AiClient {
 
     private static final Logger log = LoggerFactory.getLogger(MockAiClient.class);

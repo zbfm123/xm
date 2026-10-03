@@ -43,11 +43,68 @@ CREATE TABLE IF NOT EXISTS sys_user (
 
 -- ===================================================================
 -- 以下表按后续任务追加（不要提前建，避免与未实现的功能不一致）：
---   Day 3 / T-015  contract_element
---   Day 4 / T-016  ai_finding
 --   Day 4 / T-017  review_task
 --   Day 4 / T-018  review_action（只追加）
 -- ===================================================================
+
+-- -------------------------------------------------------------------
+-- 抽取到的合同要素（Day 4 / T-015）
+--
+-- quote / char_start / char_end 三者是"可核验"的关键：
+--   没有原文引文与区间的要素，人工无法核对，也就不该被采信（不变式 I-02）。
+--
+-- status 与 rule 模块的 ElementStatus 对应：
+--   CONFIRMED / LOW_CONFIDENCE 有值；UNKNOWN / CONFLICT 无值。
+--   **对齐失败的要素会以 UNKNOWN 落库，而不是被丢弃**——
+--   必须能看出"这个字段尝试抽过但失败了"，否则与"从没抽过"无法区分。
+-- -------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS contract_element (
+    id            BIGINT       NOT NULL AUTO_INCREMENT,
+    tenant_id     BIGINT       NOT NULL COMMENT '所属租户',
+    contract_id   BIGINT       NOT NULL COMMENT '合同ID',
+    field_key     VARCHAR(64)  NOT NULL COMMENT '字段名，对应 ElementField',
+    element_value VARCHAR(512) NULL COMMENT '抽取值；无值时为空',
+    quote         VARCHAR(1024) NULL COMMENT '支撑该值的原文引文',
+    char_start    INT          NULL COMMENT '原文区间起点',
+    char_end      INT          NULL COMMENT '原文区间终点（开区间）',
+    confidence    DECIMAL(5,4) NOT NULL DEFAULT 0 COMMENT '置信度 0~1',
+    match_level   VARCHAR(16)  NULL COMMENT '证据对齐级别 EXACT/NORMALIZED/FUZZY；未命中为空',
+    status        VARCHAR(32)  NOT NULL COMMENT 'CONFIRMED/LOW_CONFIDENCE/UNKNOWN/CONFLICT',
+    status_reason VARCHAR(512) NULL COMMENT '状态原因，例如缺哪个字段、为何对齐失败',
+    source        VARCHAR(16)  NOT NULL DEFAULT 'AI' COMMENT 'LLM 或 REGEX',
+    created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_element_contract_field (contract_id, field_key),
+    KEY idx_element_tenant (tenant_id)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT '抽取到的合同要素';
+
+-- -------------------------------------------------------------------
+-- AI 风险审查结论（Day 4 / T-016）
+--
+-- 三条硬约束体现在表结构里：
+--   1. status 的初始值**永远不是"已生效"**——AI 结论只是候选
+--   2. char_start/char_end 为空的条目 state 必为对齐失败类，不进报告正文
+--   3. model_version / prompt_version 必填——结论要可追溯
+-- -------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS ai_finding (
+    id             BIGINT       NOT NULL AUTO_INCREMENT,
+    tenant_id      BIGINT       NOT NULL COMMENT '所属租户',
+    contract_id    BIGINT       NOT NULL COMMENT '合同ID',
+    risk_type      VARCHAR(64)  NOT NULL COMMENT '风险类型枚举',
+    quote          VARCHAR(2048) NOT NULL COMMENT '模型给出的原文引文',
+    char_start     INT          NULL COMMENT '对齐后的原文区间起点；为空表示无法定位',
+    char_end       INT          NULL COMMENT '对齐后的原文区间终点',
+    confidence     DECIMAL(5,4) NOT NULL DEFAULT 0 COMMENT '综合置信度',
+    match_level    VARCHAR(16)  NULL COMMENT '证据对齐级别',
+    status         VARCHAR(32)  NOT NULL COMMENT 'PENDING/LOW_CONFIDENCE/EVIDENCE_MISMATCH/EVIDENCE_AMBIGUOUS',
+    status_reason  VARCHAR(512) NULL COMMENT '状态原因',
+    model_version  VARCHAR(64)  NOT NULL COMMENT '模型版本，用于追溯',
+    prompt_version VARCHAR(32)  NOT NULL COMMENT '提示词版本，进缓存键',
+    created_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_ai_finding_tenant_contract (tenant_id, contract_id),
+    KEY idx_ai_finding_contract_status (contract_id, status)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT 'AI 风险审查结论（候选）';
 
 -- -------------------------------------------------------------------
 -- 规则结论（Day 3 / T-011~T-012）
