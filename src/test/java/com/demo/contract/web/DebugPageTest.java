@@ -59,8 +59,33 @@ class DebugPageTest {
         // 规则校验区块必须在，且明确区分三态
         assertThat(html).contains("规则校验");
         assertThat(html).contains("无法判定");
+        // 示例合同下载入口必须在：否则使用者没有可上传的文件来试
+        assertThat(html).contains("downloadSample");
+        assertThat(html).contains("sample-contract.pdf");
+        assertThat(html).contains("要素齐全");
+        assertThat(html).contains("要素缺失");
         // 页面自带 charset 声明，避免浏览器按系统编码猜
         assertThat(html).containsIgnoringCase("charset=UTF-8");
+    }
+
+    @Test
+    @DisplayName("两个示例合同模板都能生成，且大小不同（对应两种规则结果）")
+    void sampleContractsShouldBeAvailable() {
+        var wellFormed = rest.getForEntity("/api/debug/sample-contract.pdf?template=well-formed", byte[].class);
+        var sparse = rest.getForEntity("/api/debug/sample-contract.pdf?template=sparse", byte[].class);
+
+        assertThat(wellFormed.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(sparse.getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        assertThat(wellFormed.getBody()).isNotNull();
+        assertThat(sparse.getBody()).isNotNull();
+
+        // 都必须是合法 PDF（魔数）
+        assertThat(new String(wellFormed.getBody(), 0, 5, StandardCharsets.US_ASCII)).isEqualTo("%PDF-");
+        assertThat(new String(sparse.getBody(), 0, 5, StandardCharsets.US_ASCII)).isEqualTo("%PDF-");
+
+        // 两个模板内容不同，否则"对比两种规则结果"就无从谈起
+        assertThat(wellFormed.getBody().length).isNotEqualTo(sparse.getBody().length);
     }
 
     @Test

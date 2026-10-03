@@ -223,6 +223,27 @@ curl.exe -s http://localhost:8080/api/auth/me -H "Authorization: Bearer <token>"
 | `GET /api/debug/sample-contract.pdf?template=sparse` | 生成只有正文没有要素的合同，用于观察"无法判定" |
 
 这两个端点由 `@Profile({"dev","test","default"})` 控制，**不会出现在生产环境**。
+调试台页面上有对应的下载按钮，不需要手工拼 URL。
+
+#### 两个模板的预期结果对照
+
+| 模板 | 内容 | 规则结果 |
+| --- | --- | --- |
+| `well-formed` | 甲乙方、金额（含大写）、三个日期、三类条款齐全 | 命中 0 / 通过 **4** / 无法判定 0 |
+| `sparse` | 只有一段说明文字，没有任何要素 | 命中 0 / 通过 1 / **无法判定 3** |
+
+`sparse` 的三条"无法判定"分别来自金额、日期、主体规则，并会写明缺哪个字段：
+
+```
+[UNDETERMINED] R-AMOUNT-MISMATCH     缺少金额要素：AMOUNT(UNKNOWN)、AMOUNT_IN_WORDS(UNKNOWN)
+[UNDETERMINED] R-DATE-ORDER          可比较的日期不足两个：SIGN_DATE(UNKNOWN)、...
+[UNDETERMINED] R-PARTY-INCONSISTENT  甲乙方名称均未抽到：PARTY_A(UNKNOWN)、PARTY_B(UNKNOWN)
+[PASS        ] R-CLAUSE-MISSING      争议解决、付款、违约三类条款均可检索到
+```
+
+> [!tip] 为什么值得对比这两个模板
+> 如果把"要素抽不到"当成"规则通过"，`sparse` 就会显示 4 条通过——**系统在什么都不知道的时候
+> 告诉用户"合同没问题"**。这两个模板放在一起看，才能理解为什么规则结果必须是三态。
 
 上传校验顺序（顺序本身是设计）：**大小 → 扩展名 → 算哈希查幂等 → 魔数校验**。
 超限文件在校验阶段就被拒绝，不会被完整读一遍算哈希。
