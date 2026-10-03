@@ -11,6 +11,19 @@
 powershell -ExecutionPolicy Bypass -File .\push.ps1 -Message "feat(auth): add JWT login"
 ```
 
+> [!warning] 必须加 `-ExecutionPolicy Bypass`
+> 本机 PowerShell 执行策略禁止直接运行脚本（`.\push.ps1` 会报"禁止运行脚本"）。
+> 用 `powershell -ExecutionPolicy Bypass -File .\push.ps1` 是**当前这一次**绕过，不改系统设置，也不需要管理员权限。
+
+### 当前仓库信息
+
+| 项 | 值 |
+| --- | --- |
+| 仓库 | <https://github.com/zbfm123/xm> |
+| 远端 | `git@github.com:zbfm123/xm.git`（SSH，走 443 端口） |
+| 提交邮箱 | `chen2686195184@126.com`（与 GitHub 账号绑定邮箱一致，提交能正确归属） |
+| 默认分支 | `main` |
+
 脚本会依次做五件事：检查远端 → 暂存改动 → **扫描敏感信息** → 提交 → 推送。
 
 ### 为什么要用脚本而不是直接敲 git

@@ -29,11 +29,7 @@ tags:
 | **T-001 骨架** | **`mvn test` 2/2 通过（Java 21.0.12.1 + Spring Boot 3.3.5）** | ✅ |
 | **T-002 中间件** | **MySQL 8.0.40 + Redis 3.2.100 连通** | ✅ |
 | **T-003 建表与数据** | **真实 MySQL 中建出 2 表 + 2 租户 + 3 账号，中文 UTF-8 正确** | ✅ |
-| GitHub 版本管理 | 本地仓库已建（1 次提交 / 36 文件），SSH over 443 已配，待加公钥后推送 | 🔄 |
-
-> [!warning] 待你完成一步：把公钥加到 GitHub
-> 其余都已配好。加上公钥后执行一次 `git remote add origin ...` 即可推送。
-> 完整步骤见 [09-上传到 GitHub 指南](09-github-workflow.md)。
+| **GitHub 仓库** | **<https://github.com/zbfm123/xm>** 已推送 38 文件，提交归属账号正确 | ✅ |
 
 任务卡：[T-001](tasks/T-001-project-skeleton.md)
 
