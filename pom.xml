@@ -112,6 +112,18 @@
             <artifactId>h2</artifactId>
             <scope>test</scope>
         </dependency>
+        <!--
+          外部 HTTP 依赖的测试桩。
+          用它而不是 mock AiClient：mock 掉的是"我自己的接口"，测不到
+          HTTP 状态码映射、超时、响应体解析这些真正容易出错的地方。
+          MockWebServer 起一个真实端口，让被测代码走完整的 HTTP 路径。
+        -->
+        <dependency>
+            <groupId>com.squareup.okhttp3</groupId>
+            <artifactId>mockwebserver</artifactId>
+            <version>4.12.0</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
