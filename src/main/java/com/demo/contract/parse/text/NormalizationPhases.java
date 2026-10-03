@@ -72,9 +72,19 @@ final class NormalizationPhases {
      * 折叠空白：
      * <ul>
      *   <li>行内连续空白（空格/制表符/全角空格）折叠为单个半角空格</li>
-     *   <li>行尾空白删除（否则会留下大量尾随空格，影响关键字匹配）</li>
-     *   <li>连续空行折叠为单个换行（保持在原文中首次出现的位置）</li>
+     *   <li>行尾空白删除</li>
+     *   <li><b>换行本身也按空白处理，折叠为单个空格</b>，不保留 {@code \n}</li>
      * </ul>
+     *
+     * <p>⚠️ <b>最后一行为什么重要</b>：最初版本保留换行、只删行尾空白，
+     * 结果是 {@code "付款方式：\n分两期"} 归一化后仍是 {@code "付款方式：\n分两期"}
+     * （冒号后没有空格），而下游大模型给出的引文通常是
+     * {@code "付款方式： 分两期"}（冒号后有空格）。两者对不上，
+     * <b>本该精确命中的证据被迫退化成模糊匹配，置信度凭空下降</b>。
+     *
+     * <p>把换行也折叠成空格后，文本与引文的空白形态一致，
+     * 精确匹配的命中率显著提高。代价是丢失了原始的分行结构——
+     * 本项目按"条款/段落"切分时用的是别的手段，不依赖 {@code \n}。
      *
      * <p>映射规则：折叠后的字符映射到<b>被折叠序列的第一个字符</b>的原下标。
      */
@@ -84,42 +94,20 @@ final class NormalizationPhases {
 
         boolean pendingSpace = false;
         int pendingSpaceOrigin = -1;
-        boolean pendingNewline = false;
-        int pendingNewlineOrigin = -1;
-        boolean atLineStart = true;
 
         for (int i = 0; i < text.length(); i++) {
             char c = text.charAt(i);
             int origin = toOrigin[i];
 
-            if (c == '\n') {
-                pendingSpace = false;      // 行尾空白丢弃
-                if (!atLineStart) {
-                    // 有实际内容的行结束后才能产生换行；连续换行在此折叠为一个
-                    pendingNewline = true;
-                    pendingNewlineOrigin = origin;
-                }
-                atLineStart = true;
-                continue;
-            }
-
-            boolean isSpace = c == ' ' || c == '\t' || c == '\u3000';
-            if (isSpace) {
-                if (!atLineStart && !pendingSpace) {
+            // 换行与其它空白同等对待：折叠为一个空格，行首不产生空格
+            if (c == '\n' || c == '\r' || c == ' ' || c == '\t' || c == '\u3000') {
+                if (sb.length() > 0 && !pendingSpace) {
                     pendingSpace = true;
                     pendingSpaceOrigin = origin;
                 }
                 continue;
             }
 
-            // 遇到非空白字符：把挂起的换行先落盘，再落盘空格。
-            // ⚠️ 这里必须显式复位 pendingNewline，否则它会在后续每个字符处重复落盘
-            //    （曾经造成"每个字之间都插换行"和"相邻行被粘连"两类症状）。
-            if (pendingNewline) {
-                sb.append('\n');
-                map.add(pendingNewlineOrigin);
-                pendingNewline = false;
-            }
             if (pendingSpace) {
                 sb.append(' ');
                 map.add(pendingSpaceOrigin);
@@ -128,7 +116,6 @@ final class NormalizationPhases {
 
             sb.append(c);
             map.add(origin);
-            atLineStart = false;
         }
 
         return new Result(sb.toString(), toArray(map));

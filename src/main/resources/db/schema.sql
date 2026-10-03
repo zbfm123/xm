@@ -107,16 +107,22 @@ CREATE TABLE IF NOT EXISTS contract (
 -- -------------------------------------------------------------------
 -- 合同正文（Day 2 / T-009）
 --
+-- original_text：提取后、归一化前的原文。**必须保存**：
+--   偏移映射只告诉我们"归一化下标 → 原文下标"，
+--   但要取出原文片段（证据高亮、人工核对）就必须有原文本身。
+--   只在归一化文本上存映射是没用的——那等于把映射映射回自己。
+--
 -- offset_map：归一化坐标 → 原文坐标的映射。
--- 必须保存它，否则下游"AI 结论要能定位到原文"无法实现（不变式 I-02）。
+--   必须保存它，否则下游"AI 结论要能定位到原文"无法实现（不变式 I-02）。
 -- -------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS contract_text (
     id                  BIGINT      NOT NULL AUTO_INCREMENT,
     tenant_id           BIGINT      NOT NULL COMMENT '所属租户',
     contract_id         BIGINT      NOT NULL COMMENT '合同ID',
     text                LONGTEXT    NOT NULL COMMENT '归一化文本',
+    original_text       LONGTEXT    NOT NULL COMMENT '归一化前的原文，用于按原文坐标取证据片段',
     text_hash           CHAR(64)    NOT NULL COMMENT '归一化文本 SHA-256',
-    offset_map          LONGTEXT    NULL COMMENT '归一化坐标→原文坐标映射(JSON)，T-009 填充',
+    offset_map          LONGTEXT    NULL COMMENT '归一化坐标→原文坐标映射(逗号分隔整数)',
     no_extractable_text TINYINT(1)  NOT NULL DEFAULT 0 COMMENT '是否无可提取文本(疑似扫描件)',
     created_at          DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),

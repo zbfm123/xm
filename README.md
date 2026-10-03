@@ -221,9 +221,24 @@ curl.exe -s http://localhost:8080/api/auth/me -H "Authorization: Bearer <token>"
 | --- | --- |
 | `GET /api/debug/sample-contract.pdf?template=well-formed` | 生成要素齐全的虚构合同，四条规则都会给出确定结论 |
 | `GET /api/debug/sample-contract.pdf?template=sparse` | 生成只有正文没有要素的合同，用于观察"无法判定" |
+| `GET /api/debug/align/{contractId}?quote=&context=` | **证据对齐调试**：给一句引文，看它落在原文哪里、用了哪级匹配、相似度多少、为什么失败 |
+| `GET /api/debug/align/{contractId}/info` | 查看归一化规模与映射一致性 |
 
-这两个端点由 `@Profile({"dev","test","default"})` 控制，**不会出现在生产环境**。
-调试台页面上有对应的下载按钮，不需要手工拼 URL。
+这些端点由 `@Profile({"dev","test","default"})` 控制，**不会出现在生产环境**。
+调试台页面上有对应入口，不需要手工拼 URL。
+
+#### 证据对齐调试示例
+
+```powershell
+# 逐字相同 → EXACT，权重 1.0
+curl.exe "http://localhost:8080/api/debug/align/1?quote=争议解决：提交北京仲裁委员会。"
+
+# 改一个字 → FUZZY，相似度下降，权重 0.7
+curl.exe "http://localhost:8080/api/debug/align/1?quote=争议解决：提交上海仲裁委员会。"
+
+# 原文不存在的内容 → 未命中，位置为 null
+curl.exe "http://localhost:8080/api/debug/align/1?quote=乙方承担一切损失且责任无上限"
+```
 
 #### 两个模板的预期结果对照
 

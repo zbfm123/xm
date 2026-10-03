@@ -128,6 +128,8 @@ public class ContractParsingService {
             contractText.setTenantId(tenantId);
             contractText.setContractId(contractId);
             contractText.setText(normalized.text());
+            // 原文必须一起存：证据对齐要按原文坐标取片段
+            contractText.setOriginalText(normalized.originalText());
             contractText.setTextHash(textHash);
             // 偏移映射序列化为 "原下标1,原下标2,..."，紧凑且易于校验。
             // 用 JSON 会更通用，但这里只需要一个整数序列，JSON 解析开销不值得。
@@ -174,6 +176,55 @@ public class ContractParsingService {
                     "合同尚未解析成功，无可用正文");
         }
         return text;
+    }
+
+    /**
+     * 构造证据对齐所需的正规化视图。
+     *
+     * <p><b>这一步把"归一化坐标 → 原文坐标"的映射还原出来</b>，
+     * 是证据对齐能工作的前提：对齐在归一化文本上做，
+     * 但结果必须回落到原文坐标。
+     *
+     * <p>映射以紧凑的逗号分隔整数序列存储（见 {@link #serializeOffsets}）。
+     * 用它而不是 JSON 是因为只需要一个整数序列，JSON 的解析开销不值得。
+     */
+    @Transactional(readOnly = true)
+    public com.demo.contract.extract.evidence.EvidenceAligner.OriginalMap requireAlignmentMap(Long contractId) {
+        ContractText text = requireText(contractId);
+        int[] offsets = parseOffsets(text.getOffsetMap(), text.getText().length());
+        // 原文来自数据库，不是归一化文本——这是能按原文坐标取证据片段的前提
+        return new com.demo.contract.extract.evidence.EvidenceAligner.OriginalMap(
+                text.getText(), offsets, text.getOriginalText());
+    }
+
+    /**
+     * 还原偏移映射。
+     *
+     * <p>映射与归一化文本长度必须一致——不一致说明数据损坏。
+     * <b>此时必须失败</b>，而不是用一个长度不匹配的映射去对齐：
+     * 那会让所有证据区间整体偏移，而症状是"引文定位不上"，极难排查。
+     */
+    private int[] parseOffsets(String csv, int expectedLength) {
+        if (csv == null || csv.isBlank()) {
+            throw new ContractException(ParseErrorCode.PARSE_FAILED,
+                    "合同正文缺少坐标映射，无法进行证据定位，请重新解析");
+        }
+        String[] parts = csv.split(",");
+        if (parts.length != expectedLength) {
+            throw new ContractException(ParseErrorCode.PARSE_FAILED,
+                    "坐标映射长度与正文不一致（映射 " + parts.length + " / 正文 " + expectedLength
+                            + "），数据可能已损坏，请重新解析");
+        }
+        int[] offsets = new int[parts.length];
+        for (int i = 0; i < parts.length; i++) {
+            try {
+                offsets[i] = Integer.parseInt(parts[i].trim());
+            } catch (NumberFormatException e) {
+                throw new ContractException(ParseErrorCode.PARSE_FAILED,
+                        "坐标映射格式损坏，请重新解析", e);
+            }
+        }
+        return offsets;
     }
 
     /** 把偏移映射序列化成紧凑形式。 */

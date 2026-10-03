@@ -55,14 +55,14 @@ class TextNormalizerTest {
     @DisplayName("CRLF 统一为 LF：\\r\\n 只产生一个换行")
     void crlfShouldBecomeSingleLf() {
         NormalizedText n = normalizer.normalize("line1\r\nline2\r\nline3");
-        assertThat(n.text()).isEqualTo("line1\nline2\nline3");
+        assertThat(n.text()).isEqualTo("line1 line2 line3");
     }
 
     @Test
     @DisplayName("单独出现的 CR 也统一为 LF")
     void loneCrShouldBecomeLf() {
         NormalizedText n = normalizer.normalize("a\rb");
-        assertThat(n.text()).isEqualTo("a\nb");
+        assertThat(n.text()).isEqualTo("a b");
     }
 
     @Test
@@ -87,21 +87,35 @@ class TextNormalizerTest {
     @DisplayName("行尾空白被删除")
     void trailingSpacesShouldBeRemoved() {
         NormalizedText n = normalizer.normalize("line one   \nline two\t\t\n");
-        assertThat(n.text()).isEqualTo("line one\nline two");
+        assertThat(n.text()).isEqualTo("line one line two");
     }
 
     @Test
     @DisplayName("多个空行折叠为一个换行")
     void blankLinesShouldCollapse() {
         NormalizedText n = normalizer.normalize("A\n\n\n\nB");
-        assertThat(n.text()).isEqualTo("A\nB");
+        assertThat(n.text()).isEqualTo("A B");
     }
 
     @Test
-    @DisplayName("行首缩进不产生空格")
+    @DisplayName("行首缩进被丢弃，换行折叠为单个空格")
     void leadingIndentShouldNotProduceSpace() {
+        // 换行与缩进一起折叠成"一个"空格，而不是"换行 + 若干空格"
         NormalizedText n = normalizer.normalize("A\n     B");
-        assertThat(n.text()).isEqualTo("A\nB");
+        assertThat(n.text()).isEqualTo("A B");
+    }
+
+    @Test
+    @DisplayName("换行折叠为空格，不保留 \\n —— 引文与文本的空白形态必须一致")
+    void newlinesShouldCollapseToSpace() {
+        // 这条不变量是证据对齐的前提：
+        // 模型给出的引文不会带 \n，如果文本保留 \n，精确匹配就会失败，
+        // 本该命中的证据会退化成模糊匹配、置信度凭空下降。
+        NormalizedText n = normalizer.normalize("付款方式：\n分两期支付");
+        assertThat(n.text())
+                .withFailMessage("换行未被折叠为空格，证据精确匹配会失败：%s", n.text())
+                .isEqualTo("付款方式： 分两期支付");
+        assertThat(n.text()).doesNotContain("\n");
     }
 
     @Test

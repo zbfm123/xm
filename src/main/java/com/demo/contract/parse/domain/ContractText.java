@@ -19,6 +19,14 @@ public class ContractText {
     private Long contractId;
     /** 归一化后的文本。 */
     private String text;
+    /**
+     * 归一化前的原文。
+     *
+     * <p><b>必须保存</b>：偏移映射只说明"归一化下标 → 原文下标"，
+     * 但要按原文坐标取出片段（证据高亮、人工核对）就需要原文本身。
+     * 只存归一化文本 + 映射，等于把映射映射回自己。
+     */
+    private String originalText;
     /** 归一化文本的 SHA-256，AI 结果缓存的键。 */
     private String textHash;
     /** 归一化坐标 → 原文坐标的映射（JSON），T-009 填充。 */
@@ -57,6 +65,14 @@ public class ContractText {
 
     public void setText(String text) {
         this.text = text;
+    }
+
+    public String getOriginalText() {
+        return originalText;
+    }
+
+    public void setOriginalText(String originalText) {
+        this.originalText = originalText;
     }
 
     public String getTextHash() {

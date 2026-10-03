@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS contract_text (
     tenant_id           BIGINT      NOT NULL,
     contract_id         BIGINT      NOT NULL,
     text                CLOB        NOT NULL,
+    original_text       CLOB        NOT NULL,
     text_hash           CHAR(64)    NOT NULL,
     offset_map          CLOB        NULL,
     no_extractable_text TINYINT     NOT NULL DEFAULT 0,

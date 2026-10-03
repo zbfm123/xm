@@ -18,14 +18,17 @@ import org.apache.ibatis.annotations.Select;
 public interface ContractTextMapper {
 
     @Insert("""
-            INSERT INTO contract_text (tenant_id, contract_id, text, text_hash, offset_map, no_extractable_text)
-            VALUES (#{tenantId}, #{contractId}, #{text}, #{textHash}, #{offsetMap}, #{noExtractableText})
+            INSERT INTO contract_text (tenant_id, contract_id, text, original_text, text_hash,
+                                       offset_map, no_extractable_text)
+            VALUES (#{tenantId}, #{contractId}, #{text}, #{originalText}, #{textHash},
+                    #{offsetMap}, #{noExtractableText})
             """)
     @Options(useGeneratedKeys = true, keyProperty = "id")
     int insert(ContractText contractText);
 
     @Select("""
-            SELECT id, tenant_id, contract_id, text, text_hash, offset_map, no_extractable_text, created_at
+            SELECT id, tenant_id, contract_id, text, original_text, text_hash, offset_map,
+                   no_extractable_text, created_at
               FROM contract_text
              WHERE contract_id = #{contractId}
                AND tenant_id = #{tenantId}
