@@ -154,9 +154,28 @@ public class ContractService {
                 ? null : ContractStatus.from(status);   // 非法值抛异常，不静默忽略
 
         int safeSize = Math.min(Math.max(size, 1), 100);
-        int safePage = Math.max(page, 0);
-        int offset = safePage * safeSize;
         String normalizedKeyword = (keyword == null || keyword.isBlank()) ? null : keyword.trim();
+
+        // ⚠️ 分页基准：**对外 1 基，内部 0 基**。
+        //
+        // 这里踩过一个坑：接口默认值是 0，但客户端习惯性传 page=1，
+        // 结果 offset=size **直接跳过了第一页**——返回空列表，而 total 是对的。
+        // 症状极具误导性："列表是空的但显示共 3 条"，看起来像数据问题，
+        // 实际是分页基准不一致。
+        //
+        // 修复做了两件事：
+        //   1. 统一为对外 1 基（客户端直觉），这里做 -1 转换
+        //   2. **把越界页夹到最后一页**，而不是返回空列表
+        //
+        // 第 2 点同样重要：前端删掉最后一页的最后一条后重新拉取，页码就超范围了。
+        // 返回空列表会让界面显示"暂无数据"，而实际上前一页还有内容——
+        // 用户会以为数据全没了。
+        long total = contractMapper.countPage(tenantId, normalizedKeyword, statusFilter);
+
+        int totalPages = (int) Math.max(1, (total + safeSize - 1) / safeSize);
+        int requestedPage = Math.max(page, 1);
+        int effectivePage = Math.min(requestedPage, totalPages);
+        int offset = (effectivePage - 1) * safeSize;
 
         List<ContractSummary> items = contractMapper
                 .findPage(tenantId, normalizedKeyword, statusFilter, safeSize, offset)
@@ -164,14 +183,13 @@ public class ContractService {
                 .map(ContractSummary::from)
                 .toList();
 
-        long total = contractMapper.countPage(tenantId, normalizedKeyword, statusFilter);
-
-        if (safePage > 0 && items.isEmpty()) {
-            // 深分页越界：明确告知，避免前端以为"没有数据"
-            log.debug("分页越界: tenant={} page={} total={}", tenantId, safePage, total);
+        if (requestedPage != effectivePage) {
+            // 明确告知被夹住了，便于排查"为什么页码跳了"
+            log.debug("分页越界已夹到最后一页: tenant={} 请求={} 实际={} 总页数={}",
+                    tenantId, requestedPage, effectivePage, totalPages);
         }
 
-        return PageResult.of(items, total, safePage, safeSize);
+        return PageResult.of(items, total, effectivePage, safeSize);
     }
 
     /**

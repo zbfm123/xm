@@ -78,7 +78,7 @@ public class ContractController {
     public ResponseEntity<PageResult<ContractSummary>> list(
             @RequestParam(value = "keyword", required = false) String keyword,
             @RequestParam(value = "status", required = false) String status,
-            @RequestParam(value = "page", defaultValue = "0") int page,
+            @RequestParam(value = "page", defaultValue = "1") int page,
             @RequestParam(value = "size", defaultValue = "20") int size) {
         return ResponseEntity.ok(contractService.list(keyword, status, page, size));
     }

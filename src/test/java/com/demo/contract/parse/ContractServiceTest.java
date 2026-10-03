@@ -237,25 +237,38 @@ class ContractServiceTest extends AuthenticatedTestBase {
                 "application/pdf", TestFiles.minimalPdf("保密内容")), null);
 
         // 全部
-        assertThat(contractService.list(null, null, 0, 20).total()).isEqualTo(6);
+        assertThat(contractService.list(null, null, 1, 20).total()).isEqualTo(6);
 
         // 关键字筛选
-        PageResult<ContractSummary> purchase = contractService.list("采购", null, 0, 20);
+        PageResult<ContractSummary> purchase = contractService.list("采购", null, 1, 20);
         assertThat(purchase.total()).isEqualTo(5);
 
-        // 分页：每页 2 条，第 0 页
-        PageResult<ContractSummary> page0 = contractService.list(null, null, 0, 2);
-        assertThat(page0.items()).hasSize(2);
-        assertThat(page0.total()).isEqualTo(6);
-        assertThat(page0.totalPages()).isEqualTo(3);
+        // 分页：对外 1 基。每页 2 条，第 1 页
+        PageResult<ContractSummary> page1 = contractService.list(null, null, 1, 2);
+        assertThat(page1.items()).hasSize(2);
+        assertThat(page1.total()).isEqualTo(6);
+        assertThat(page1.totalPages()).isEqualTo(3);
+        assertThat(page1.page())
+                .withFailMessage("对外页码应当是 1 基的，返回了 %s", page1.page())
+                .isEqualTo(1);
 
-        // 最后一页只有 0 条（6 条 / 每页 2 = 正好 3 页，第 2 页是最后有数据的一页）
-        PageResult<ContractSummary> page2 = contractService.list(null, null, 2, 2);
-        assertThat(page2.items()).hasSize(2);
+        // 第 3 页是最后有数据的一页
+        PageResult<ContractSummary> page3 = contractService.list(null, null, 3, 2);
+        assertThat(page3.items()).hasSize(2);
 
-        // 越界页返回空列表但 total 仍正确，便于前端判断
+        // ⚠️ 越界页**夹到最后一页**，而不是返回空列表。
+        //
+        // 为什么不返回空：前端删掉最后一页的最后一条后重新拉取，页码就超范围了。
+        // 返回空列表会让界面显示"暂无数据"，而实际上前一页还有内容——
+        // 用户会以为数据全没了。
+        //
+        // 这个坑我真踩过：客户端的 1 基页码被当成 0 基，
+        // offset 直接跳过第一页，症状是"列表空着但显示共 3 条"。
         PageResult<ContractSummary> page9 = contractService.list(null, null, 9, 2);
-        assertThat(page9.items()).isEmpty();
+        assertThat(page9.items())
+                .withFailMessage("越界页返回了空列表，用户会以为数据没了")
+                .hasSize(2);
+        assertThat(page9.page()).isEqualTo(3);
         assertThat(page9.total()).isEqualTo(6);
     }
 
@@ -269,14 +282,17 @@ class ContractServiceTest extends AuthenticatedTestBase {
     }
 
     @Test
-    @DisplayName("分页参数被收敛：size 上限 100，page 负数按 0")
+    @DisplayName("分页参数被收敛：size 上限 100，page 小于 1 按第 1 页（对外 1 基）")
     void pagingParametersShouldBeClamped() throws IOException {
         loginAsDemoTenant();
         uploadPdf("一份合同", "内容");
 
         PageResult<ContractSummary> r = contractService.list(null, null, -5, 100000);
-        assertThat(r.page()).isZero();
+        assertThat(r.page())
+                .withFailMessage("对外是 1 基分页，最小页号应为 1，实际 %s", r.page())
+                .isEqualTo(1);
         assertThat(r.size()).isEqualTo(100);
+        // 夹到第 1 页后应当能拿到数据，而不是因为页号非法返回空
         assertThat(r.items()).hasSize(1);
     }
 

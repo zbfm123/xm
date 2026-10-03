@@ -406,7 +406,9 @@ async function doUpload() {
 // ---------- 3. 列表 ----------
 async function loadList() {
   if (!token) { log('请先登录', 'warn'); return; }
-  const p = new URLSearchParams({ page: '0', size: '20' });
+  // 对外分页是 1 基（客户端直觉）。传 0 会被后端夹到第 1 页，
+  // 但显式写 1 更清楚，也避免"看起来能用其实靠兜底"。
+  const p = new URLSearchParams({ page: '1', size: '20' });
   if ($('kw').value) p.set('keyword', $('kw').value);
   if ($('statusFilter').value) p.set('status', $('statusFilter').value);
 

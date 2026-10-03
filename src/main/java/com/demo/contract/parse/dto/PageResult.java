@@ -5,7 +5,7 @@ import java.util.List;
 /**
  * 分页结果。
  *
- * @param page  当前页码，从 0 开始
+ * @param page  当前页码，**从 1 开始**（对外契约；内部 offset 由 Service 转成 0 基）
  * @param size  每页条数
  * @param total 满足条件的总条数
  */
