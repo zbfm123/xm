@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>合同智能审查平台 · 调试台</title>
+<!--
+  单文件调试台（零构建工具）。
+
+  为什么先做这个而不是正式的 Vue 前端：
+  后端能力已经可用，但"看不见"就没法验证与演示。
+  一个自包含 HTML 能在浏览器里立刻走通全流程，且不需要 npm 装包。
+
+  ⚠️ 定位说明：这是**开发/演示用调试台**，不是交付级前端。
+  正式前端（Vue 3）排在 Day 5，届时本页保留作为排错工具。
+
+  安全：页面本身是公开静态文件，但所有数据请求都要 JWT，
+       因此放行它不降低安全性。
+-->
+<style>
+  :root {
+    --bg: #0f1419; --panel: #171d26; --panel2: #1f2731;
+    --line: #2a3542; --fg: #e6edf3; --dim: #8b98a8;
+    --accent: #4a9eff; --ok: #3fb950; --warn: #d29922; --err: #f85149;
+    --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 14px/1.6 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  }
+  header {
+    padding: 14px 20px; border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    background: var(--panel); position: sticky; top: 0; z-index: 10;
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header .tag {
+    font-size: 12px; color: var(--dim); border: 1px solid var(--line);
+    padding: 2px 8px; border-radius: 10px;
+  }
+  main { padding: 20px; max-width: 1180px; margin: 0 auto; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 16px; margin-bottom: 16px;
+  }
+  .card h2 {
+    font-size: 14px; margin: 0 0 12px; font-weight: 600;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .step {
+    display: inline-flex; width: 20px; height: 20px; align-items: center;
+    justify-content: center; border-radius: 50%; background: var(--accent);
+    color: #001; font-size: 12px; font-weight: 700; flex: none;
+  }
+  label { display: block; font-size: 12px; color: var(--dim); margin-bottom: 4px; }
+  input, select, button, textarea {
+    font: inherit; border-radius: 6px; border: 1px solid var(--line);
+    background: var(--panel2); color: var(--fg); padding: 8px 10px;
+  }
+  input, select { width: 100%; }
+  button {
+    cursor: pointer; background: var(--accent); color: #00161f;
+    border: none; font-weight: 600; padding: 9px 16px;
+  }
+  button:hover { filter: brightness(1.1); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.ghost { background: transparent; color: var(--fg); border: 1px solid var(--line); font-weight: 500; }
+  button.danger { background: var(--err); color: #fff; }
+  .row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+  .row > * { flex: 1 1 160px; }
+  .row > .fixed { flex: 0 0 auto; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 760px) { .grid2 { grid-template-columns: 1fr; } }
+  pre {
+    background: var(--panel2); border: 1px solid var(--line); border-radius: 6px;
+    padding: 12px; overflow: auto; max-height: 420px; margin: 0;
+    font-family: var(--mono); font-size: 12.5px; white-space: pre-wrap; word-break: break-word;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); }
+  th { color: var(--dim); font-weight: 500; font-size: 12px; }
+  .pill { padding: 1px 8px; border-radius: 10px; font-size: 11px; font-family: var(--mono); }
+  .s-UPLOADED { background: #21324a; color: #79b8ff; }
+  .s-PARSED { background: #17351f; color: var(--ok); }
+  .s-PARSE_FAILED { background: #3d1d1d; color: var(--err); }
+  .s-DELETED { background: #2a2a2a; color: var(--dim); }
+  .muted { color: var(--dim); font-size: 12px; }
+  .log {
+    font-family: var(--mono); font-size: 12px; max-height: 150px;
+    overflow: auto; background: #0b0f14; border: 1px solid var(--line);
+    border-radius: 6px; padding: 8px;
+  }
+  .log div { padding: 1px 0; }
+  .log .ok { color: var(--ok); }
+  .log .err { color: var(--err); }
+  .log .warn { color: var(--warn); }
+  .hint {
+    background: #16212e; border-left: 3px solid var(--accent);
+    padding: 10px 12px; border-radius: 0 6px 6px 0; font-size: 12.5px; color: #b9c6d4;
+    margin-bottom: 14px;
+  }
+  .hidden { display: none !important; }
+  .kbd { font-family: var(--mono); background: var(--panel2); border: 1px solid var(--line);
+         border-radius: 4px; padding: 1px 5px; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>合同智能审查平台</h1>
+  <span class="tag" id="healthTag">检查服务中…</span>
+  <span class="tag" id="userTag">未登录</span>
+</header>
+
+<main>
+
+  <div class="hint">
+    演示口令：<span class="kbd">staff01</span> / <span class="kbd">Demo@2026</span>
+    （法务专员，租户 1）　对比租户：<span class="kbd">other01</span> / <span class="kbd">Demo@2026</span>（租户 2）
+    <br>数据全部为虚构样例。此页是开发调试台，正式前端排在 Day 5。
+  </div>
+
+  <!-- 1. 登录 -->
+  <div class="card">
+    <h2><span class="step">1</span>登录</h2>
+    <div class="row">
+      <div><label>用户名</label><input id="username" value="staff01"></div>
+      <div><label>密码</label><input id="password" type="password" value="Demo@2026"></div>
+      <div class="fixed"><button onclick="doLogin()">登录</button></div>
+      <div class="fixed"><button class="ghost" onclick="doLogout()">登出</button></div>
+    </div>
+  </div>
+
+  <!-- 2. 上传 -->
+  <div class="card">
+    <h2><span class="step">2</span>上传合同</h2>
+    <div class="row">
+      <div style="flex:2 1 260px">
+        <label>选择 PDF / DOCX 文件（≤20MB，内容必须与扩展名相符）</label>
+        <input id="file" type="file" accept=".pdf,.docx">
+      </div>
+      <div><label>标题（可留空，默认取文件名）</label><input id="title" placeholder="采购合同"></div>
+      <div class="fixed"><button onclick="doUpload()">上传</button></div>
+    </div>
+    <p class="muted" style="margin:10px 0 0">
+      提示：同一文件重复上传会返回同一份合同（<span class="kbd">idempotent=true</span>），不会新建记录。
+    </p>
+  </div>
+
+  <!-- 3. 列表 -->
+  <div class="card">
+    <h2><span class="step">3</span>合同列表
+      <button class="ghost" style="margin-left:auto;padding:4px 10px;font-size:12px" onclick="loadList()">刷新</button>
+    </h2>
+    <div class="row" style="margin-bottom:12px">
+      <div><label>关键字（匹配标题或文件名）</label><input id="kw" placeholder="采购"></div>
+      <div><label>状态筛选</label>
+        <select id="statusFilter">
+          <option value="">全部</option>
+          <option>UPLOADED</option>
+          <option>PARSED</option>
+          <option>PARSE_FAILED</option>
+          <option value="NOT_A_STATUS">非法值（试 400）</option>
+        </select>
+      </div>
+      <div class="fixed"><button class="ghost" onclick="loadList()">查询</button></div>
+    </div>
+    <table>
+      <thead><tr><th style="width:56px">id</th><th>标题</th><th>文件名</th><th style="width:130px">状态</th><th style="width:150px">操作</th></tr></thead>
+      <tbody id="listBody"><tr><td colspan="5" class="muted">登录后点“刷新”加载</td></tr></tbody>
+    </table>
+  </div>
+
+  <!-- 4. 详情 -->
+  <div class="card">
+    <h2><span class="step">4</span>合同详情与解析</h2>
+    <div id="detailEmpty" class="muted">在列表里点“查看”选择一份合同。</div>
+    <div id="detailBox" class="hidden">
+      <div class="grid2" style="margin-bottom:12px">
+        <div>
+          <table>
+            <tbody id="detailMeta"></tbody>
+          </table>
+        </div>
+        <div>
+          <label>操作</label>
+          <div class="row">
+            <div class="fixed"><button onclick="doParse()">解析文本</button></div>
+            <div class="fixed"><button class="ghost" onclick="loadText()">查看正文</button></div>
+            <div class="fixed"><button class="danger" onclick="doDelete()">删除</button></div>
+          </div>
+          <label style="margin-top:12px">解析结果</label>
+          <pre id="parseResult" style="max-height:150px">尚未解析</pre>
+        </div>
+      </div>
+      <label>归一化正文（可复制其中一句去试“证据定位”）</label>
+      <pre id="textBox">尚未加载</pre>
+    </div>
+  </div>
+
+  <!-- 5. 日志 -->
+  <div class="card">
+    <h2><span class="step">5</span>请求日志</h2>
+    <div class="log" id="log"></div>
+  </div>
+
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+let token = null;
+let currentId = null;
+
+function log(msg, kind) {
+  const d = document.createElement('div');
+  if (kind) d.className = kind;
+  const t = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+  d.textContent = `[${t}] ${msg}`;
+  $('log').prepend(d);
+}
+
+async function api(method, path, { body, raw, ctype, auth = true } = {}) {
+  const headers = { 'Accept': 'application/json' };
+  let payload = null;
+  if (raw !== undefined) { payload = raw; headers['Content-Type'] = ctype || 'application/octet-stream'; }
+  else if (body !== undefined) { payload = JSON.stringify(body); headers['Content-Type'] = 'application/json; charset=utf-8'; }
+  if (auth && token) headers['Authorization'] = 'Bearer ' + token;
+
+  const res = await fetch(path, { method, headers, body: payload });
+  const text = await res.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+
+  const mark = res.ok ? 'ok' : 'err';
+  log(`${method} ${path} → ${res.status}`, mark);
+  if (!res.ok && data && data.code) log(`　　${data.code}: ${data.message}`, 'err');
+  return { status: res.status, ok: res.ok, data };
+}
+
+// ---------- 健康检查 ----------
+async function checkHealth() {
+  try {
+    const r = await fetch('/api/health');
+    const h = await r.json();
+    $('healthTag').textContent = `服务正常 · AI 通道=${h.aiEnabled ? '真实调用' : 'Mock 桩'}`;
+    log(`健康检查通过，aiEnabled=${h.aiEnabled}, model=${h.aiModel}`, 'ok');
+  } catch (e) {
+    $('healthTag').textContent = '服务不可达';
+    log('健康检查失败：' + e.message, 'err');
+  }
+}
+
+// ---------- 1. 登录 ----------
+async function doLogin() {
+  const r = await api('POST', '/api/auth/login',
+    { body: { username: $('username').value, password: $('password').value }, auth: false });
+  if (!r.ok) { $('userTag').textContent = '登录失败'; return; }
+  token = r.data.token;
+  const u = r.data.user;
+  $('userTag').textContent = `${u.displayName} · ${u.role} · 租户${u.tenantId}`;
+  log(`登录成功：${u.username}（${u.role}），有效期 ${r.data.expiresIn} 秒`, 'ok');
+  loadList();
+}
+
+async function doLogout() {
+  if (token) await api('POST', '/api/auth/logout');
+  token = null; currentId = null;
+  $('userTag').textContent = '未登录';
+  $('listBody').innerHTML = '<tr><td colspan="5" class="muted">未登录</td></tr>';
+  $('detailBox').classList.add('hidden');
+  $('detailEmpty').classList.remove('hidden');
+}
+
+// ---------- 2. 上传 ----------
+async function doUpload() {
+  const f = $('file').files[0];
+  if (!f) { log('请先选择文件', 'warn'); return; }
+  const fd = new FormData();
+  fd.append('file', f);
+  if ($('title').value) fd.append('title', $('title').value);
+
+  const res = await fetch('/api/contracts', {
+    method: 'POST',
+    headers: token ? { 'Authorization': 'Bearer ' + token } : {},
+    body: fd
+  });
+  const text = await res.text();
+  let data = null;
+  try { data = JSON.parse(text); } catch { data = text; }
+  log(`POST /api/contracts → ${res.status}`, res.ok ? 'ok' : 'err');
+
+  if (!res.ok) {
+    log(`　　上传被拒：${data.code || ''} ${data.message || ''}`, 'err');
+    return;
+  }
+  log(`　　合同 id=${data.contract.id}，状态=${data.contract.status}，幂等命中=${data.idempotent}`,
+      data.idempotent ? 'warn' : 'ok');
+  if (data.idempotent) log('　　同一文件已存在，返回原记录（这是幂等，不是错误）', 'warn');
+  loadList();
+}
+
+// ---------- 3. 列表 ----------
+async function loadList() {
+  if (!token) { log('请先登录', 'warn'); return; }
+  const p = new URLSearchParams({ page: '0', size: '20' });
+  if ($('kw').value) p.set('keyword', $('kw').value);
+  if ($('statusFilter').value) p.set('status', $('statusFilter').value);
+
+  const r = await api('GET', '/api/contracts?' + p.toString());
+  if (!r.ok) { $('listBody').innerHTML = `<tr><td colspan="5" class="muted">查询失败：${r.data.code || r.status}</td></tr>`; return; }
+
+  const items = r.data.items;
+  if (!items.length) {
+    $('listBody').innerHTML = '<tr><td colspan="5" class="muted">没有数据（跨租户时这是正确结果）</td></tr>';
+    return;
+  }
+  $('listBody').innerHTML = items.map(it => `
+    <tr>
+      <td>${it.id}</td>
+      <td>${esc(it.title)}</td>
+      <td class="muted">${esc(it.originalFilename)}</td>
+      <td><span class="pill s-${it.status}">${it.status}</span></td>
+      <td>
+        <button class="ghost" style="padding:3px 10px;font-size:12px" onclick="selectContract(${it.id})">查看</button>
+      </td>
+    </tr>`).join('');
+  log(`列表加载完成：total=${r.data.total}，本页 ${items.length} 条`, 'ok');
+}
+
+// ---------- 4. 详情 ----------
+async function selectContract(id) {
+  const r = await api('GET', '/api/contracts/' + id);
+  if (!r.ok) return;
+  currentId = id;
+  const c = r.data;
+  $('detailEmpty').classList.add('hidden');
+  $('detailBox').classList.remove('hidden');
+  $('detailMeta').innerHTML = `
+    <tr><th>id</th><td>${c.id}</td></tr>
+    <tr><th>标题</th><td>${esc(c.title)}</td></tr>
+    <tr><th>原文件名</th><td>${esc(c.originalFilename)}</td></tr>
+    <tr><th>大小</th><td>${c.fileSize} 字节</td></tr>
+    <tr><th>状态</th><td><span class="pill s-${c.status}">${c.status}</span></td></tr>
+    <tr><th>已解析</th><td>${c.hasText ? '是' : '否'}</td></tr>
+    <tr><th>创建时间</th><td class="muted">${c.createdAt || ''}</td></tr>`;
+  $('parseResult').textContent = '尚未解析（点“解析文本”）';
+  $('textBox').textContent = '尚未加载（点“查看正文”）';
+  log(`已选中合同 id=${id}`);
+}
+
+async function doParse() {
+  if (!currentId) return;
+  const r = await api('POST', `/api/contracts/${currentId}/parse`);
+  if (!r.ok) return;
+  const d = r.data;
+  $('parseResult').textContent = JSON.stringify(d, null, 2);
+
+  if (d.success) {
+    log(`解析成功：${d.normalizedLength} 字符，${d.pageCount} 页`, 'ok');
+    if (d.stats && d.stats.charsRemoved !== undefined) {
+      log(`　　归一化移除了 ${d.stats.charsRemoved} 个字符（原文 ${d.stats.originalLength} → ${d.stats.normalizedLength}）`, 'warn');
+    }
+  } else {
+    log(`解析失败：${d.errorCode} — ${d.message}`, 'err');
+    log('　　注意：失败时不会留下半份正文，状态已置 PARSE_FAILED', 'warn');
+  }
+  selectContract(currentId);
+  loadList();
+}
+
+async function loadText() {
+  if (!currentId) return;
+  const r = await api('GET', `/api/contracts/${currentId}/text`);
+  if (!r.ok) {
+    $('textBox').textContent = `无法读取正文：${r.data.code || r.status}\n（未解析或解析失败的合同不会返回空文本，而是明确报错）`;
+    return;
+  }
+  $('textBox').textContent = r.data.text;
+  log(`正文长度 ${r.data.length}，textHash=${r.data.textHash.slice(0, 16)}…`, 'ok');
+}
+
+async function doDelete() {
+  if (!currentId) return;
+  const r = await api('DELETE', '/api/contracts/' + currentId);
+  if (r.status === 204) log('删除成功（204）。删除是幂等的，重复删除同样返回 204', 'ok');
+  currentId = null;
+  $('detailBox').classList.add('hidden');
+  $('detailEmpty').classList.remove('hidden');
+  loadList();
+}
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, m =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+}
+
+checkHealth();
+</script>
+</body>
+</html>

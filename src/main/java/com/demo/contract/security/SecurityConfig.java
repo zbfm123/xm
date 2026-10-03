@@ -43,7 +43,12 @@ public class SecurityConfig {
     private static final String[] PUBLIC_PATHS = {
             "/api/health",
             "/api/auth/login",
-            "/api/auth/logout"
+            "/api/auth/logout",
+            // 自带调试页：单文件、零构建，直接由 Spring Boot 托管静态资源。
+            // 它只做前端壳，所有数据仍走需要认证的接口，因此放行静态文件不降低安全性。
+            "/",
+            "/index.html",
+            "/favicon.ico"
     };
 
     @Bean

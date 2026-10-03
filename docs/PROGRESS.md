@@ -16,7 +16,8 @@ tags:
 - **阶段**：Day 3 / M3「有核心」—— 进行中
 - **当前任务**：T-011 规则引擎骨架与结果三分
 - **日期**：2026-10-03
-- **测试**：`mvn test` → **97/97 通过**
+- **测试**：`mvn test` → **99/99 通过**
+- **可访问**：<http://localhost:8080>（自带调试台；`.\run-dev.ps1` 起服务后浏览器打开）
 
 ## 已完成
 
@@ -37,6 +38,7 @@ tags:
 | T-008 删除级联 | **软删除 + 定向清 AI 缓存** | ✅ |
 | **T-009 文本提取** | **真实 PDF/DOCX（含表格）+ 保坐标归一化** | ✅ |
 | **T-010 解析失败显式化** | **加密/扫描件/损坏三类失败均不留半份正文** | ✅ |
+| **自带调试台** | **<http://localhost:8080> 浏览器可走完整流程（提前于 Day 5）** | ✅ |
 | GitHub 仓库 | <https://github.com/zbfm123/xm> 提交归属账号正确 | ✅ |
 
 任务卡：[T-001](tasks/T-001-project-skeleton.md) ｜ [T-004](tasks/T-004-auth-login-jwt.md) ｜ [T-005~008](tasks/T-005-008-tenant-and-contract-crud.md) ｜ [T-009~010](tasks/T-009-010-text-extraction-and-normalization.md)
@@ -95,6 +97,11 @@ src/test/java/.../ContractReviewApplicationTests.java  骨架自检（2 个用�
 | `github.com:443` 被封锁，push 超时 | 改走 `ssh.github.com:443`（配 `~/.ssh/config`）。**先诊断是哪个端口不通，再换方案** |
 | `.ps1` 中文注释导致脚本语法错误 | Windows PowerShell 5.1 读无 BOM 的 UTF-8 文件时按 GBK 解码，**脚本必须存为 UTF-8 with BOM** |
 | 执行策略禁止运行脚本 | 用 `powershell -ExecutionPolicy Bypass -File .\push.ps1` |
+| 架构测试扫不到 Mapper（`ClassPathScanningCandidateComponentProvider` 默认排除接口） | **"扫到 0 个"会假绿**，所以另写断言确认确实扫到了 |
+| `String.formatted()` 处理含 `%PDF` 的模板抛 `UnknownFormatConversionException` | `%` 在格式化字符串里是格式符，**含 `%` 的模板不要交给 `formatted()`** |
+| **分片编辑 YAML 导致顶层 `spring:` 出现两次** | 配置类文件**整份重写**，不要做片段插入。测试直接报出 50 个错误，立刻抓到 |
+| **MockMvc 测静态资源拿到空字符串** | MockMvc **不加载 static 目录**。要测静态页面须用 `RANDOM_PORT` + `TestRestTemplate` 起真实容器 |
+| **用终端判断中文编码，得出互相矛盾的结论** | 最终用 Java 字节级判定 `contains == true` 才作数。**判断编码要看字节，不要看终端的脸** |
 
 ## 关键决策速查（面试会问）
 

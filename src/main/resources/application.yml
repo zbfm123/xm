@@ -24,6 +24,14 @@ spring:
       password: ${REDIS_PASSWORD:}
       timeout: 2s
 
+  # 静态资源响应类型：默认 text/html 不带 charset。
+  # 虽然页面内有 <meta charset="UTF-8">，显式声明更规范，
+  # 也避免 curl / 抓包工具按系统编码猜而把中文显示成乱码。
+  web:
+    resources:
+      content-type:
+        text/html: text/html;charset=UTF-8
+
 server:
   port: 8080
 

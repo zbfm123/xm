@@ -211,7 +211,28 @@ curl.exe -s "http://localhost:8080/api/contracts?keyword=采购&status=PARSED&pa
   -H "Authorization: Bearer <token>"
 ```
 
-### 3.9 跑测试
+### 3.9 浏览器里看效果（自带调试台）
+
+服务起来后，直接打开：
+
+```
+http://localhost:8080
+```
+
+这是一个**单文件调试台**（`src/main/resources/static/index.html`，零构建工具），
+可以在浏览器里点完整个流程：登录 → 上传 → 列表 → 解析 → 查看正文 → 删除。
+
+> [!note] 它是什么、不是什么
+> **是**：开发与演示用的调试台，用来验证后端能力、排错、面试演示。
+> **不是**：交付级前端。正式的 Vue 3 前端排在 Day 5，届时本页保留作为排错工具。
+>
+> 页面本身是公开静态资源（否则打不开），但**所有数据请求都要 JWT**，
+> 所以放行它不降低安全性——这一点有测试锁住（`DebugPageTest`）。
+
+页面上演示口令已写明：`staff01` / `Demo@2026`（租户 1）、
+`other01` / `Demo@2026`（租户 2，用于对比租户隔离）。
+
+### 3.10 跑测试
 
 ```powershell
 mvn test
@@ -219,11 +240,12 @@ mvn test
 
 测试使用 H2 内存库与 Mock 桩，**不依赖本地 MySQL / Redis，也不消耗 AI 额度**。
 
-当前覆盖：**97 个用例**，包含：
+当前覆盖：**99 个用例**，包含：
 
 - **`TenantScopeArchitectureTest`** —— 扫描所有 Mapper 的 SQL，缺 `tenant_id` 即构建失败，锁死多租户隔离
 - `ContractTextExtractorTest` —— 用**真实 PDF / DOCX**（含加密、表格）验证提取
 - `TextNormalizerTest` —— 重点断言**坐标映射可回查原文**，而不只是"文本被洗净了"
+- `DebugPageTest` —— 起真实内嵌容器验证调试台可访问、中文正确、接口仍受保护
 
 ---
 
