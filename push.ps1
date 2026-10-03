@@ -69,6 +69,31 @@ Write-Host "[OK] origin = $($r.Out)"
 # PowerShell 的 Set-Content -Encoding UTF8 会给 Java 文件加上 BOM，
 # 这类问题不该靠人记得，所以在这里拦住。
 Write-Step 2 "检查文件 BOM"
+
+# 先查".ps1 必须有 BOM"。
+# 这个方向我踩了两次，第二次是因为编辑器保存时把 BOM 去掉了——
+# 所以必须用脚本兜住，不能靠人记得。
+$ps1MissingBom = @()
+Get-ChildItem -Path $PSScriptRoot -File -Filter *.ps1 -ErrorAction SilentlyContinue |
+    ForEach-Object {
+        $b = [System.IO.File]::ReadAllBytes($_.FullName)
+        $hasBom = ($b.Length -ge 3 -and $b[0] -eq 0xEF -and $b[1] -eq 0xBB -and $b[2] -eq 0xBF)
+        if (-not $hasBom) { $ps1MissingBom += $_.Name }
+    }
+
+if ($ps1MissingBom.Count -gt 0) {
+    Write-Host "[X] 以下 .ps1 缺少 UTF-8 BOM，Windows PowerShell 5.1 会把中文读成乱码：" -ForegroundColor Red
+    $ps1MissingBom | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
+    Write-Host ""
+    Write-Host "修复（在仓库根目录执行，把每个文件替换一遍）：" -ForegroundColor Yellow
+    Write-Host '    Get-ChildItem *.ps1 | ForEach-Object {' -ForegroundColor Yellow
+    Write-Host '        $t = [System.Text.Encoding]::UTF8.GetString([System.IO.File]::ReadAllBytes($_))' -ForegroundColor Yellow
+    Write-Host '        [System.IO.File]::WriteAllText($_, $t, (New-Object System.Text.UTF8Encoding($true)))' -ForegroundColor Yellow
+    Write-Host '    }' -ForegroundColor Yellow
+    exit 1
+}
+
+# 再查反向：java / yml / sql 不能带 BOM
 $bomProblems = @()
 Get-ChildItem -Path $PSScriptRoot -Recurse -File -Include *.java, *.yml, *.yaml, *.sql, *.xml -ErrorAction SilentlyContinue |
     Where-Object { $_.FullName -notmatch '\\target\\|\\node_modules\\|\\.git\\' } |
