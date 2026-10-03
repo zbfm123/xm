@@ -33,9 +33,12 @@ import java.util.Map;
 public class ContractController {
 
     private final ContractService contractService;
+    private final ContractParsingService parsingService;
 
-    public ContractController(ContractService contractService) {
+    public ContractController(ContractService contractService,
+                              ContractParsingService parsingService) {
         this.contractService = contractService;
+        this.parsingService = parsingService;
     }
 
     /** 上传合同。同文件重复上传返回已有记录并置 {@code idempotent=true}。 */
@@ -43,6 +46,31 @@ public class ContractController {
     public ResponseEntity<UploadResult> upload(@RequestParam("file") MultipartFile file,
                                                @RequestParam(value = "title", required = false) String title) {
         return ResponseEntity.ok(contractService.upload(file, title));
+    }
+
+    /**
+     * 解析合同文本。
+     *
+     * <p>返回 200 + 结果体，即使解析失败（例如加密 PDF）——因为这是<b>业务结果</b>，
+     * 不是请求错误。用 4xx 表达"你的 PDF 加密了"会让前端把业务分支和错误分支混在一起。
+     * 真正的请求错误（合同不存在、未登录）仍然用 4xx。
+     */
+    @PostMapping("/{id}/parse")
+    public ResponseEntity<ContractParsingService.ParseOutcome> parse(@PathVariable("id") Long id) {
+        return ResponseEntity.ok(parsingService.parse(id));
+    }
+
+    /** 读取归一化后的正文，供人工查看与核对证据位置。 */
+    @GetMapping("/{id}/text")
+    public ResponseEntity<Map<String, Object>> text(@PathVariable("id") Long id) {
+        var contractText = parsingService.requireText(id);
+        return ResponseEntity.ok(Map.of(
+                "contractId", id,
+                "text", contractText.getText(),
+                "textHash", contractText.getTextHash(),
+                "length", contractText.getText().length(),
+                "noExtractableText", contractText.isNoExtractableText()
+        ));
     }
 
     /** 分页列表，支持关键字与状态筛选。 */

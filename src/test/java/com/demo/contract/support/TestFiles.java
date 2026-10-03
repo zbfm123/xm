@@ -39,7 +39,7 @@ public final class TestFiles {
         return body.getBytes(StandardCharsets.UTF_8);
     }
 
-    /** 生成一个以 {@code PK\\x03\\x04} 开头的最小 DOCX（ZIP 容器）。 */
+    /** 生成一个以 {@code PK} 开头的最小 DOCX（ZIP 容器）。 */
     public static byte[] minimalDocx(String marker) throws IOException {
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         try (ZipOutputStream zip = new ZipOutputStream(bos)) {

@@ -93,10 +93,16 @@ tags:
 
 ### 进行中
 
-（当前无 —— T-009 待开始）
+（当前无 —— T-011 待开始）
 
 ### 已验收
 
+- [x] T-001 ~ T-008 见下
+- [x] **T-009 PDF/DOCX 文本提取与保坐标归一化**  
+  模块：[parse](modules/parse.md) ｜ 任务卡：[T-009~010](tasks/T-009-010-text-extraction-and-normalization.md) ｜ 验收证据：真实 PDF/DOCX 提取成功（**含表格内容**）；归一化后映射可回查原文、映射单调；重复解析幂等 ｜ 完成日期：2026-10-03
+- [x] **T-010 解析失败显式化**  
+  模块：[parse](modules/parse.md) ｜ 验收证据：**A-02 通过**——加密 PDF → `PDF_ENCRYPTED`、空白 PDF（扫描件）→ `NO_EXTRACTABLE_TEXT`、损坏 PDF → `PARSE_FAILED`，**三者均不留下半份正文** ｜ 完成日期：2026-10-03  
+  备注：过程中暴露并修复 3 个真实缺陷（全角转半角误伤中文标点、折叠空白丢换行、删行粘连正文）
 - [x] T-001 项目骨架与依赖收敛  
   模块：— ｜ 任务卡：[T-001](tasks/T-001-project-skeleton.md) ｜ 验收证据：`mvn test` → 2/2 ｜ 完成日期：2026-10-03
 - [x] T-002 本机中间件连通  
