@@ -1,6 +1,7 @@
 package com.demo.contract.review;
 
 import com.demo.contract.aireview.AiReviewService;
+import com.demo.contract.aireview.AiInvocationRunner;
 import com.demo.contract.aireview.mapper.AiFindingMapper;
 import com.demo.contract.aireview.client.AiCallException;
 import com.demo.contract.aireview.client.AiErrorCode;
@@ -58,6 +59,7 @@ public class ReviewTaskService {
     private final RuleCheckService ruleCheckService;
     private final ElementExtractionService extractionService;
     private final AiReviewService aiReviewService;
+    private final AiInvocationRunner aiInvocationRunner;
     private final AiFindingMapper aiFindingMapper;
 
     public ReviewTaskService(ReviewTaskMapper taskMapper,
@@ -65,12 +67,14 @@ public class ReviewTaskService {
                              RuleCheckService ruleCheckService,
                              ElementExtractionService extractionService,
                              AiReviewService aiReviewService,
+                             AiInvocationRunner aiInvocationRunner,
                              AiFindingMapper aiFindingMapper) {
         this.taskMapper = taskMapper;
         this.contractMapper = contractMapper;
         this.ruleCheckService = ruleCheckService;
         this.extractionService = extractionService;
         this.aiReviewService = aiReviewService;
+        this.aiInvocationRunner = aiInvocationRunner;
         this.aiFindingMapper = aiFindingMapper;
     }
 
@@ -133,28 +137,43 @@ public class ReviewTaskService {
         int totalFindings = 0;
 
         try {
-            extractionService.extract(contractId);
-            var review = aiReviewService.review(contractId);
-            totalFindings = review.total();
+            // ⚠️ 必须走独立事务（AiInvocationRunner）。
+            //
+            // 直接在同一个事务里调用的话，extract/review 抛异常会把当前事务
+            // 标记为 rollback-only，**即使这里 catch 住了，提交时依然整体回滚**——
+            // 规则校验白跑、任务记录被回滚、客户端拿到 500 而不是"已降级"。
+            // 这个 bug 在单元测试里被测试自身的 @Transactional 掩盖了，
+            // 只有真实 HTTP 调用才会暴露。
+            totalFindings = aiInvocationRunner.runExtractionAndReview(contractId);
         } catch (AiCallException e) {
             aiAvailable = false;
             degradeReason = describeDegrade(e);
-            log.warn("AI 通道降级，任务继续进入人工复核: taskId={} code={} 原因={}",
+            log.warn("AI 通道不可用，任务进入降级态: taskId={} code={} 原因={}",
                     task.getId(), e.getCode(), degradeReason);
         }
 
-        if (!aiAvailable) {
-            // ⚠️ 关键：降级后不是终态，而是继续推进到待人工复核。
-            // AI_UNAVAILABLE -> AWAITING_REVIEW 这条边就是 I-04 的落点。
+        if (aiAvailable) {
+            moveTo(task, ReviewTaskStatus.AWAITING_REVIEW,
+                    degradeReason, true, totalFindings, 0);
+        } else {
+            // ⚠️ 降级时**必须停在 AI_UNAVAILABLE**，不能顺手推进到 AWAITING_REVIEW。
+            //
+            // 这是我踩过的坑：最初这里写成了"先转 AI_UNAVAILABLE，再无条件转
+            // AWAITING_REVIEW"，结果**降级状态被后一次迁移覆盖**，
+            // 任务看起来像"审查正常完成"，只在 status_reason 里留了一句话。
+            //
+            // 那份记录在列表里与正常完成无法区分——用户会以为
+            // "审查完成，未发现风险"，而实际是"AI 根本没跑"。
+            // 这正是 I-04 要防的误导：**降级必须显式可见，不能藏在一个看似正常的
+            // 状态里**。要继续走人工复核，必须由调用方显式调用 proceedAfterDegrade，
+            // 那才是一个可观察的动作，也才能在界面上被提示。
             moveTo(task, ReviewTaskStatus.AI_UNAVAILABLE, degradeReason, false, 0, 0);
         }
 
-        moveTo(task, ReviewTaskStatus.AWAITING_REVIEW,
-                degradeReason, aiAvailable, totalFindings, 0);
-
         String message = aiAvailable
                 ? "审查完成，等待人工复核"
-                : "AI 通道不可用，已降级：规则结论与要素仍可用于人工复核";
+                : "AI 通道不可用，任务已降级：规则结论与要素仍在，"
+                        + "可调用 proceed 继续进入人工复核";
 
         return new TaskOutcome(task, false, message);
     }
@@ -299,19 +318,25 @@ public class ReviewTaskService {
      *
      * <p>区分"未启用"与"调用失败"很重要：前者是配置问题（改开关即可），
      * 后者是运行时问题（要查网络或额度）。混成一句"AI 不可用"会让排查无路可走。
+     *
+     * <p>并且要把<b>原始异常消息带上</b>：降级演示开关（{@code client-mode=unavailable}）
+     * 与"真的没配 Key"是两种完全不同的原因，只写"未启用"会把人引到错误方向。
      */
     private String describeDegrade(AiCallException e) {
-        if (e.getCode() == AiErrorCode.AI_UNAVAILABLE) {
-            return "AI 通道未启用（app.ai.enabled=false 或未配置 API Key）。"
-                    + "这是预期内的降级状态：规则结论与要素抽取均已保留，可继续人工复核";
-        }
-        if (e.getCode() == AiErrorCode.BUDGET_EXCEEDED
-                || e.getCode() == AiErrorCode.CALL_LIMIT_EXCEEDED) {
-            return "AI 调用被限额拒绝（" + e.getCode() + "）：" + e.getMessage()
-                    + "。规则结论与要素抽取均已保留，可继续人工复核";
-        }
-        return "AI 调用失败（" + e.getCode() + "）：" + e.getMessage()
-                + "。规则结论与要素抽取均已保留，可继续人工复核";
+        String cause = e.getMessage() == null ? "" : e.getMessage();
+
+        String head = switch (e.getCode()) {
+            case AI_UNAVAILABLE -> "AI 通道不可用";
+            case BUDGET_EXCEEDED -> "AI 日预算已用尽";
+            case CALL_LIMIT_EXCEEDED -> "AI 单合同调用次数超限";
+            case AI_TIMEOUT -> "AI 调用超时";
+            case AI_RATE_LIMITED -> "AI 被限流";
+            case AI_SERVER_ERROR -> "AI 服务端错误";
+            case SCHEMA_INVALID -> "AI 返回结构非法";
+        };
+
+        return head + "（" + e.getCode() + "）：" + cause
+                + " —— 规则结论与要素抽取均已保留，可继续人工复核";
     }
 
     /**

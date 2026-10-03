@@ -14,9 +14,9 @@ tags:
 ## 当前状态
 
 - **阶段**：Day 4 / M4「闭环合上」—— 进行中
-- **当前任务**：T-019 AI 不可用降级（独立验收项）
+- **当前任务**：Day 5 一键演示脚本与面试脚本定稿
 - **日期**：2026-10-03
-- **测试**：`mvn test` → **258/258 通过**
+- **测试**：`mvn test` → **272/272 通过**
 - **AI 通道**：Mock 桩（零额度消耗）；真实调用需 `AI_ENABLED=true` + `DEEPSEEK_API_KEY`
 
 ## 已完成
@@ -46,6 +46,7 @@ tags:
 | **T-016 AI 风险审查** | **四道闸门；引文定位不到的不进报告正文** | ✅ |
 | **T-018 只追加审计** | **三重保障（无修改入口 + 触发器 + 哈希链）；审计不随合同删除** | ✅ |
 | **T-017 任务状态机** | **6×6 穷举断言；幂等启动；AI 降级不终止（I-04）** | ✅ |
+| **T-019 AI 不可用降级** | **可复现的降级通道；降级不被伪装成完成；异常显式映射** | ✅ |
 | **确定性要素抽取** | 纯正则抽金额/日期/主体，零 AI 成本 | ✅ |
 | **自带调试台** | **<http://localhost:8080> 完整流程 + 规则校验 + 证据对齐调试** | ✅ |
 | GitHub 仓库 | <https://github.com/zbfm123/xm> 提交归属账号正确 | ✅ |
@@ -90,8 +91,9 @@ src/test/java/.../ContractReviewApplicationTests.java  骨架自检（2 个用�
 
 ## 下一步（按顺序）
 
-1. **T-019** AI 不可用降级（作为独立验收项）
-2. Day 5：一键演示脚本、README 定稿、面试脚本
+1. Day 5：**一键演示脚本**（干净机器 5 分钟起）
+2. README 定稿 + 面试问答与演示讲稿
+3. 前端补齐复核按钮（若时间允许）
 
 ## 踩过的坑（面试素材，别丢）
 
@@ -128,6 +130,9 @@ src/test/java/.../ContractReviewApplicationTests.java  骨架自检（2 个用�
 | **不可变类（单构造函数）触发 MyBatis 按列顺序构造器映射** | 报错伪装成"中文编码错误"（`Error attempting to get column 'reason'` + `LongTypeHandler`）。`@Results`、`@ResultType`、`@AutomapConstructor` **三条路都拦不住**。改动根源：**`final` 只能防住"通过这个类的方法改动"，任何人都能直接写 SQL 绕过**——保障要放在有效的那一层 |
 | **MyBatis 一级缓存让篡改检测失效**（最隐蔽的一个） | `record()` 刚读完链尾，`verifyChain()` 命中 SqlSession 缓存，于是**报"链路完好"，而库里其实已被改动**。安全机制失效的方式是"说一切正常"，最难发现。修复：审计表的 SELECT 加 `useCache=false` |
 | **为了让依赖方向好看而抽单方法接口**（重复犯的老毛病） | 抽了只有一个方法的 `ReviewActionMapperHolder`，其实直接注入 Mapper + 一条 `countReviewed` SQL 就够了。**成本大于收益，一律不抽** |
+| **降级被后续的状态迁移覆盖** | `moveTo(AI_UNAVAILABLE)` 后无条件 `moveTo(AWAITING_REVIEW)`，记录与「正常完成」**无法区分**。修复：降级必须停在降级态，继续要显式 `proceed` |
+| **`AiCallException` 未映射 → 500** | 客户端无法区分「AI 不可用（可降级）」与「服务端崩了」。修复：显式映射 503/429/502，并返回 `degradable`/`retryable`；有测试穷举所有错误码 |
+| **`@Transactional` 单元测试掩盖了事务边界**（最隐蔽） | 内层 `@Transactional` 抛异常把外层标记为 rollback-only，**catch 住也没用**，真实 HTTP 下整体回滚返回 500，而单测全绿。修复：AI 调用走 `REQUIRES_NEW`。**涉及多事务协作的路径必须至少有一次真实 HTTP 验证** |
 
 ## 关键决策速查（面试会问）
 

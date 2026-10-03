@@ -90,6 +90,56 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * AI 调用失败。
+     *
+     * <p><b>这里必须把错误码原样返回，否则降级路径不可用。</b>
+     * 不显式处理的话它会落到兜底分支，返回通用的
+     * {@code 500 INTERNAL_ERROR}——客户端就<b>无法区分
+     * "AI 不可用（可降级继续）"与"服务端崩了"</b>，
+     * 而这两者对使用者的意义完全不同：前者可以继续用规则结论与人工复核，
+     * 后者只能等修复。
+     *
+     * <p>这正是 A-08 要求的可区分性：降级状态必须是一个<em>能被识别</em>的
+     * 业务状态，而不是一个笼统的故障。
+     *
+     * <p>状态码的选择：
+     * <ul>
+     *   <li>{@code AI_UNAVAILABLE} → <b>503</b>：服务暂时不可用，但系统本身是好的</li>
+     *   <li>限额类（预算/次数）→ <b>429</b>：调用方需要等待或调整</li>
+     *   <li>超时 / 限流 / 5xx → <b>502</b>：上游出问题</li>
+     *   <li>结构非法 → <b>502</b>：上游返回了不可用的内容</li>
+     * </ul>
+     */
+    @ExceptionHandler(com.demo.contract.aireview.client.AiCallException.class)
+    public ResponseEntity<Map<String, Object>> handleAiCall(
+            com.demo.contract.aireview.client.AiCallException e,
+            HttpServletRequest request) {
+
+        var code = e.getCode();
+        HttpStatus status = switch (code) {
+            case AI_UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE;      // 503
+            case BUDGET_EXCEEDED, CALL_LIMIT_EXCEEDED -> HttpStatus.TOO_MANY_REQUESTS;  // 429
+            case AI_TIMEOUT, AI_RATE_LIMITED, AI_SERVER_ERROR, SCHEMA_INVALID ->
+                    HttpStatus.BAD_GATEWAY;                              // 502
+        };
+
+        // 降级是预期内的状态，用 warn；只有真正异常的上游故障用 error
+        if (code == com.demo.contract.aireview.client.AiErrorCode.AI_UNAVAILABLE) {
+            log.warn("AI 通道不可用（降级状态）: {} {}", request.getRequestURI(), e.getMessage());
+        } else {
+            log.error("AI 调用失败: code={} {} {}", code, request.getRequestURI(), e.getMessage());
+        }
+
+        Map<String, Object> body = base(code.name(), e.getMessage(), request);
+        // 明确告诉调用方"这是可以降级继续的状态"，避免前端把它当成致命错误
+        body.put("degradable", code == com.demo.contract.aireview.client.AiErrorCode.AI_UNAVAILABLE
+                || code == com.demo.contract.aireview.client.AiErrorCode.BUDGET_EXCEEDED
+                || code == com.demo.contract.aireview.client.AiErrorCode.CALL_LIMIT_EXCEEDED);
+        body.put("retryable", e.isRetryable());
+        return ResponseEntity.status(status).body(body);
+    }
+
+    /**
      * 非法入参枚举值等：属于调用方错误，返回 400。
      *
      * <p>为什么单独处理：{@code ContractStatus.from()} 与 {@code Role.from()} 对未知值

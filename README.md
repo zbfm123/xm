@@ -114,15 +114,41 @@ $env:DEEPSEEK_API_KEY  = "sk-你的key"
 > 开发与测试请保持 `AI_ENABLED=false`。**Mock 模式下不限额**——
 > 桩调用不花钱，限制它只会妨碍开发。
 
-#### AI 通道切换
+#### AI 通道切换（三种）
 
-| `AI_ENABLED` | 注入的客户端 | 用途 |
-| --- | --- | --- |
-| `false`（默认） | `MockAiClient` | 开发、测试、断网演示、零消耗 |
-| `true` | `DeepSeekClient` | 真实调用（需 `DEEPSEEK_API_KEY`） |
+| `AI_CLIENT_MODE` | `AI_ENABLED` | 注入的客户端 | 用途 |
+| --- | --- | --- | --- |
+| `auto`（默认） | `false` | `MockAiClient` | 开发、测试、断网演示、零消耗 |
+| `auto` | `true` | `DeepSeekClient` | 真实调用（需 `DEEPSEEK_API_KEY`） |
+| **`unavailable`** | 任意 | `UnavailableAiClient` | **确定性地演示降级路径** |
 
-`/api/health` 的 `aiEnabled` 字段会如实反映当前通道，
-**演示前先看这一项**，避免"以为在真调模型，其实在读缓存"。
+`/api/health` 的 `aiEnabled` 字段会如实反映通道。
+
+> [!note] 为什么需要 `unavailable` 这个通道
+> 降级（不变式 I-04）是三个「绝不砍」项之一，但它**必须能确定性地演示**。
+> 而 Mock 桩设计成"永远可成功"，**正好掩盖了降级路径**；
+> 不配 Key 会回退到 Mock；拔网线则不可复现。
+>
+> 所以提供了一个"就是不可用"的通道。演示降级：
+> ```powershell
+> $env:AI_ENABLED="true"; $env:AI_CLIENT_MODE="unavailable"; .\run-dev.ps1
+> ```
+> 然后上传合同 → 启动审查任务 → 你会看到任务停在 `AI_UNAVAILABLE`，
+> **而不是** `AWAITING_REVIEW`，且规则结论完整保留。
+
+#### AI 调用失败的状态码
+
+| 错误码 | HTTP | `degradable` | `retryable` |
+| --- | --- | --- | --- |
+| `AI_UNAVAILABLE` | 503 | ✅ | ❌ |
+| `BUDGET_EXCEEDED` / `CALL_LIMIT_EXCEEDED` | 429 | ✅ | ❌ |
+| `AI_TIMEOUT` / `AI_RATE_LIMITED` / `AI_SERVER_ERROR` | 502 | ❌ | ✅ |
+| `SCHEMA_INVALID` | 502 | ❌ | ❌ |
+
+响应里带 `degradable` 与 `retryable` 两个布尔，
+**让客户端不必自己推断该怎么办**。有一条测试穷举所有错误码，
+确保**没有任何一类落到兜底的 500**——否则调用方无法区分
+"AI 不可用（可降级继续）"与"服务端崩了"。
 
 ### 3.4 启动
 

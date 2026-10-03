@@ -78,6 +78,14 @@ app:
   # -----------------------------------------------------------------
   ai:
     enabled: ${AI_ENABLED:false}
+    # 通道模式：
+    #   auto        —— 按 enabled 决定用 Mock 桩还是真实调用（默认）
+    #   unavailable —— 显式不可用，用于**确定性地演示与验收降级路径**（I-04）
+    #
+    # 为什么需要 unavailable：Mock 桩设计成"永远可成功"，会掩盖降级路径；
+    # 而不配 Key 也不行（会回退到 Mock）。降级是三个「绝不砍」项之一，
+    # 必须有可复现的方式触发，否则演示只能靠运气。
+    client-mode: ${AI_CLIENT_MODE:auto}
     base-url: https://api.deepseek.com
     api-key: ${DEEPSEEK_API_KEY:}
     model: deepseek-chat

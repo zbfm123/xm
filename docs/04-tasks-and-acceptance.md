@@ -93,10 +93,13 @@ tags:
 
 ### 进行中
 
-（当前无 —— T-019 待开始）
+（当前无 —— Day 5 演示与沉淀待开始）
 
 ### 已验收
 
+- [x] **T-019 AI 不可用降级**
+  模块：[workflow](modules/workflow.md) ｜ 任务卡：[T-019](tasks/T-019-ai-degradation.md) ｜ 验收证据：**A-08 通过**——`AI_CLIENT_MODE=unavailable` 确定性触发降级；真实 MySQL 上六项命题全部成立：规则仍给 4 条确定结论、AI 调用返回 **503 + AI_UNAVAILABLE**、任务停在 `AI_UNAVAILABLE`（**不被伪装成完成**）、`proceed` 后可进入人工复核、无 AI 结论时人工仍可 `CONFIRM_NO_RISK` 并留痕 ｜ 完成日期：2026-10-03
+  备注：修复 3 个 bug，其中「内层事务标记 rollback-only 导致降级在真实 HTTP 下失效」**只在真实调用时暴露，单测全绿**
 - [x] **T-017 审查任务状态机与幂等**  
   模块：[workflow](modules/workflow.md) ｜ 任务卡：[T-017](tasks/T-017-review-task-state-machine.md) ｜ 验收证据：**穷举单测通过**（6×6 = 36 个状态对全部断言，含"不可自环""终态无出边""不可回到 PENDING"）；**重复提交返回同一 taskId** 且不重跑流程；`AI_UNAVAILABLE` 有边通向 `AWAITING_REVIEW`（I-04）；非法迁移抛异常且状态不变；删除合同清理任务但**保留审计** ｜ 完成日期：2026-10-03  
   备注：过程中发现自己过度设计了一次（单方法接口），已改回直接注入 Mapper

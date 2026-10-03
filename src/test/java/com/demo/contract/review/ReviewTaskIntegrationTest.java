@@ -32,8 +32,50 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @SpringBootTest
 @ActiveProfiles("test")
 @Import(RedisTestConfig.class)
-@Transactional
+// ⚠️ 本类**刻意不加 @Transactional**。
+//
+// ReviewTaskService 的 AI 调用走 REQUIRES_NEW 独立事务（见 AiInvocationRunner），
+// 而独立事务只能看到**已提交**的数据。测试方法自己的 @Transactional
+// 会让上传的合同处于未提交状态，独立事务看不到它，于是报"合同不存在"。
+//
+// 生产环境下这不是问题：启动任务时合同早已提交。
+// 测试要反映真实事务边界，就不该用一个大事务把一切包住。
+// 代价是数据会真实落库——靠 @AfterEach 清理。
 class ReviewTaskIntegrationTest extends AuthenticatedTestBase {
+
+    @Autowired private org.springframework.jdbc.core.JdbcTemplate jdbc;
+
+    /**
+     * 清理本类产生的数据。
+     *
+     * <p>用 JdbcTemplate 直接删，而不是给生产代码加一个"清理专用"的查询方法——
+     * <b>为测试便利而扩大生产 API 是不划算的交换</b>。
+     *
+     * <p>顺序：先删子表。review_action 上有 BEFORE DELETE 触发器，
+     * 需要临时摘掉才能清（这也反过来证明了触发器确实在生效）。
+     */
+    @org.junit.jupiter.api.AfterEach
+    void cleanup() {
+        try {
+            jdbc.execute("DROP TRIGGER IF EXISTS trg_review_action_no_delete");
+            jdbc.execute("DELETE FROM review_action");
+            jdbc.execute("CREATE TRIGGER trg_review_action_no_delete "
+                    + "BEFORE DELETE ON review_action FOR EACH ROW "
+                    + "SIGNAL SQLSTATE '45000' "
+                    + "SET MESSAGE_TEXT = 'review_action is append-only: DELETE is forbidden'");
+        } catch (RuntimeException e) {
+            // H2 不支持 SIGNAL，触发器建不了属正常；数据已清掉即可
+        }
+        for (String table : new String[]{"review_task", "ai_finding", "contract_element",
+                "rule_finding", "contract_text", "contract"}) {
+            try {
+                jdbc.execute("DELETE FROM " + table);
+            } catch (RuntimeException ignored) {
+                // 表不存在或已被清空
+            }
+        }
+        com.demo.contract.auth.domain.CurrentUser.clear();
+    }
 
     @Autowired private ContractService contractService;
     @Autowired private ContractParsingService parsingService;
