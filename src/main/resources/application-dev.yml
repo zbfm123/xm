@@ -1,0 +1,40 @@
+# ===================================================================
+# 开发环境（本机 MySQL + Redis，均为 Windows 服务，无需 Docker）
+# 启动：.\run-dev.ps1    或    mvn spring-boot:run -Dspring-boot.run.profiles=dev
+#
+# 凭据不写在本文件里，请放在 application-local.yml（已被 .gitignore 排除）
+# 参考模板：application-local.yml.example
+#
+# 为什么用 spring.sql.init 而不是 Flyway（决策 D-08）：
+#   没学过 Flyway，5 天冲刺不值得学。schema.sql 用 CREATE TABLE IF NOT EXISTS
+#   可重复执行。代价是改表只能手工 ALTER —— 已登记为已知技术债。
+# ===================================================================
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/contract_review?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+    username: ${DB_USER:root}
+    # ⚠️ 真实密码放在环境变量 DB_PASSWORD 或 application-local.yml，不进仓库
+    password: ${DB_PASSWORD:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  data:
+    redis:
+      password: ${REDIS_PASSWORD:}
+
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:db/schema.sql
+      data-locations: classpath:db/data.sql
+      continue-on-error: false
+      encoding: UTF-8
+
+app:
+  storage:
+    root: ./data/files
+
+logging:
+  level:
+    com.demo.contract: DEBUG
+    # 想看 SQL 时打开下面这行
+    # com.demo.contract.mapper: DEBUG

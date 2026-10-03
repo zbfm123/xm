@@ -1,0 +1,87 @@
+# ===================================================================
+# 合同智能审查平台 · 主配置
+# 敏感值一律走环境变量，不写进仓库（见 docs/README.md 笔记保存原则）
+# ===================================================================
+spring:
+  application:
+    name: contract-review
+
+  # 默认不自动建表；开发环境用 -Dspring.profiles.active=dev 开启
+  sql:
+    init:
+      mode: never
+
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 24MB
+
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+      # 本机 Redis 已开启 requirepass（见 D:\redis\...\redis.windows.conf）
+      password: ${REDIS_PASSWORD:}
+      timeout: 2s
+
+server:
+  port: 8080
+
+# -------------------------------------------------------------------
+# MyBatis-Plus
+# -------------------------------------------------------------------
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    banner: false
+    db-config:
+      logic-delete-field: deleted          # 逻辑删除字段
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+# -------------------------------------------------------------------
+# 应用自定义配置
+# -------------------------------------------------------------------
+app:
+  storage:
+    # 本地文件存储目录（决策 D-09：不用 MinIO）
+    root: ./data/files
+
+  upload:
+    max-size-bytes: 20971520              # 20MB，与 multipart 上限一致
+    allowed-extensions: pdf,docx
+
+  jwt:
+    # ⚠️ 生产必须通过环境变量覆盖；仅本地开发有默认值
+    secret: ${JWT_SECRET:local-dev-only-secret-change-me-please-32bytes}
+    expire-minutes: 120
+    issuer: contract-review
+
+  # -----------------------------------------------------------------
+  # AI 通道配置（决策 D-07、D-12）
+  #   ai.enabled=false  → 走内置 Mock 桩：开发/测试零消耗，演示断网也能跑
+  #   ai.enabled=true   → 真实调用 DeepSeek
+  # 额度仅 15 元，真正的风险是调试时循环调用，故设次数上限与成本计数
+  # -----------------------------------------------------------------
+  ai:
+    enabled: ${AI_ENABLED:false}
+    base-url: https://api.deepseek.com
+    api-key: ${DEEPSEEK_API_KEY:}
+    model: deepseek-chat
+    prompt-version: v1
+    timeout-seconds: 60
+    max-retries: 1                        # 失败最多重试 1 次（工作流纪律）
+    max-calls-per-contract: 2             # 单份合同调用硬上限，超限即拒绝
+    daily-budget-cny: 5.0                 # 日预算上限，超出直接拒绝而非静默降级
+    cache-enabled: true
+
+  workflow:
+    low-confidence-threshold: 0.60
+    high-confidence-threshold: 0.80
+
+logging:
+  level:
+    root: INFO
+    com.demo.contract: DEBUG
+  # 脱敏纪律：不打合同全文、不打 token、不打 API Key

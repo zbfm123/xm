@@ -1,0 +1,176 @@
+---
+title: 合同解析 parse
+aliases:
+  - parse
+  - 文本提取
+tags:
+  - 项目
+  - 模块
+  - 解析
+status: 未开始
+---
+
+# 合同解析 parse
+
+## 0. 一句话定位
+
+把用户上传的文件，变成一个**坐标可信**的归一化文本。不判断内容含义，不调大模型。
+
+**不变量**：I-05（幂等）的存储侧基础。
+
+## 1. 职责与边界
+
+### 模块职责
+
+接收上传、校验格式与大小、存入对象存储、提取纯文本、做**保坐标的归一化**，并输出 `contract_text` 与页面/段落结构。
+
+> [!important] 本模块最关键的设计
+> 归一化会改变字符长度（全角转半角、空白折叠、去页眉页脚）。
+> 而 [extract](extract.md) 和 [ai-review](ai-review.md) 的证据区间必须能**回到原文**。
+> 因此本模块必须显式维护 **归一化坐标 ↔ 原文坐标的映射**，而不是简单地把文本"洗一遍"。
+
+### 不负责什么
+
+- 不判断合同类型、不识别条款含义 → 交给 [extract](extract.md) / [ai-review](ai-review.md)
+- 不做 OCR（明确不做，见 [01](../01-requirements-and-scope.md#明确不做)）
+- 不做业务校验（例如金额是否合理）→ 交给 [rule](rule.md)
+
+### 上下游关系
+
+| 方向 | 模块/系统 | 交换内容 | 约定 |
+| --- | --- | --- | --- |
+| 输入 | 浏览器 | `multipart/form-data` 文件 | ≤ 20MB，`application/pdf` / `docx` |
+| 输出 | [extract](extract.md)、[ai-review](ai-review.md) | `NormalizedText{text, offsetMap, paragraphs[]}` | 必须带坐标映射；失败则不产出任何文本 |
+
+### 允许的依赖
+
+- 允许调用：本地文件存储（`FileStorage` 接口）、MySQL、PDFBox、POI
+- 禁止调用：任何大模型接口。[parse](parse.md) 一旦触网，失败模式会从"解析错误"变成"网络错误"，排查成本翻倍。
+
+## 2. 功能清单
+
+| 编号 | 功能 | 输入 | 输出 | 关联需求 |
+| --- | --- | --- | --- | --- |
+| M-P01 | 上传校验 | 文件流 + 元信息 | 校验结果 | F-02 |
+| M-P02 | 内容寻址存储 | 文件字节 | `objectKey = sha256(bytes)` | F-02 |
+| M-P03 | 文本提取 | 文件字节 | 原始文本 + 页/段结构 | F-02 |
+| M-P04 | 保坐标归一化 | 原始文本 | 归一化文本 + 坐标映射 | F-02 / A-03 |
+| M-P05 | 解析失败显式化 | 异常 | `PARSE_FAILED` + 原因 | A-02 |
+
+## 3. 核心流程
+
+### 流程：上传并解析
+
+1. 校验：大小、扩展名，**并用魔数（magic bytes）校验真实类型**，不信任 `Content-Type`。
+2. 计算 `sha256(bytes)`；已存在同哈希合同 → 直接返回已有记录（幂等，I-05）。
+3. 存入本地文件目录（`./data/files`），文件名用内容哈希，天然去重。**存储通过 `FileStorage` 接口访问**，日后可替换为 OSS。
+4. 提取文本：PDF 走 PDFBox 按页提取；DOCX 走 POI 提取段落。
+5. 归一化（**保坐标**）：
+   - 去页眉页脚（按页内高频重复行识别）；
+   - 全角转半角（仅标点与数字，避免破坏中文语义）；
+   - 连续空白折叠为单空格；
+   - 统一换行为 `\n`。
+   每一步都记录 `原始区间 → 新区间`，最终产出**逐字符可回查的映射表**。
+6. 落 `contract_text`，状态置 `PARSED`。
+7. 任一步失败 → 状态 `PARSE_FAILED` + 错误码，**不写入任何部分要素**。
+
+### 异常与降级路径
+
+| 情况 | 判定方式 | 系统行为 | 是否转人工 |
+| --- | --- | --- | --- |
+| 扩展名伪装 | 魔数与扩展名不符 | `MIME_MISMATCH` | 否 |
+| 文件超限 | 字节数 > 20MB | `FILE_TOO_LARGE` | 否 |
+| 加密 PDF | PDFBox 抛 `InvalidPasswordException` | `PDF_ENCRYPTED` | 是（需用户提供解密版） |
+| 零文本（扫描件） | 提取结果去空白后为空 | `NO_EXTRACTABLE_TEXT`，明确提示"疑似扫描件，本期不支持" | 是 |
+| 文件损坏 | 解析器抛 IO/格式异常 | `PARSE_FAILED` | 是 |
+| 本地存储不可写 | 磁盘异常/权限不足 | `STORAGE_UNAVAILABLE`，**不落半条记录** | 是 |
+
+## 4. 数据与接口
+
+### 数据结构
+
+| 字段/对象 | 类型 | 含义 | 必填 | 来源 | 去向 |
+| --- | --- | --- | --- | --- | --- |
+| `Contract.textHash` | String(64) | 归一化后文本哈希，幂等键 | 是 | parse | workflow、ai-review 缓存键 |
+| `Contract.fileHash` | String(64) | 文件字节哈希，存储去重 | 是 | parse | 本地文件路径 |
+| `ContractText.text` | TEXT | 归一化文本 | 是 | parse | extract、ai-review |
+| `ContractText.offsetMap` | BLOB/JSON | 归一化坐标 → 原文坐标映射 | 是 | parse | 报告高亮回显 |
+| `Paragraph.index` | int | 段落序号 | 是 | parse | ai-review 切块 |
+| `Paragraph.charStart/charEnd` | int | 归一化文本中的区间 | 是 | parse | extract、ai-review |
+
+### 接口/事件
+
+| 名称 | 调用方 | 输入 | 成功输出 | 失败输出 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `POST /api/contracts` | 前端 | 文件 | `{contractId, status}` | `FILE_TOO_LARGE` / `MIME_MISMATCH` / `STORAGE_UNAVAILABLE` | 幂等：同 fileHash 返回已有 id |
+| `GET /api/contracts/{id}/text` | 前端 | id | 归一化文本 + 段落 | 404 | 强制带 tenantId |
+| 领域事件 `ContractParsed` | parse 发布 | contractId, textHash | — | — | workflow 订阅以推进状态机 |
+
+## 5. 状态、错误码与排查
+
+| 错误码 | 触发条件 | 用户可见结果 | 系统行为 | 优先排查位置 | 是否可重试 |
+| --- | --- | --- | --- | --- | --- |
+| `FILE_TOO_LARGE` | > 20MB | "文件过大" | 拒绝 | 上传配置 | 换文件 |
+| `MIME_MISMATCH` | 魔数不符 | "文件类型不支持" | 拒绝 | 校验器 | 换文件 |
+| `PDF_ENCRYPTED` | 加密 PDF | "文件已加密" | 状态 `PARSE_FAILED` | PDFBox 调用处 | 用户解密后重传 |
+| `NO_EXTRACTABLE_TEXT` | 文本为空 | "疑似扫描件，暂不支持" | 状态 `PARSE_FAILED` | 提取后校验 | 否 |
+| `STORAGE_UNAVAILABLE` | 本地存储异常 | "存储服务不可用" | 回滚，不留半条记录 | `FileStorage` 实现 | 是 |
+| `PARSE_FAILED` | 其他解析异常 | "解析失败" | 记录异常类型与文件名 | 解析器 | 是 |
+
+> [!warning] 不许发生的事
+> 解析失败时留下"半个合同"（有 Contract 行、没有 text）：后续模块会把"空文本"当成"合同没有条款"，从而错误地判定合规。**失败必须整体失败。**
+
+## 6. 测试与验收
+
+### 单元测试（严格 TDD）
+
+| 场景 | 类型 | 前置条件 | 操作 | 预期结果 |
+| --- | --- | --- | --- | --- |
+| 全角转半角保坐标 | 单元 | 含全角数字的文本 | 归一化 | 文本变化，且映射可回查到原文区间 |
+| 空白折叠保坐标 | 单元 | 多个连续空格 | 归一化 | 折叠为 1 个空格，映射连续正确 |
+| 页眉页脚剥离 | 单元 | 每页重复行 | 归一化 | 重复行被移除，正文区间正确 |
+| 魔数校验 | 单元 | 改名为 `.pdf` 的文本文件 | 上传校验 | `MIME_MISMATCH` |
+| 幂等 | 单元 | 同一文件两次 | 上传 | 返回同一 contractId，磁盘只写一次 |
+
+### 集成测试
+
+| 场景 | 依赖替身 | 覆盖的验收项 |
+| --- | --- | --- |
+| 加密 PDF 上传 | `@SpringBootTest` + H2 + 临时目录 | A-02 |
+| 存储不可写 | 桩故障注入（`FileStorage` 抛异常） | 无半条记录落库 |
+
+### 手工验收
+
+| 步骤 | 预期结果 |
+| --- | --- |
+| 上传虚构采购合同 → 打开文本页 | 文本可读，页眉页脚已清除 |
+| 上传加密 PDF | 明确报错，合同详情不显示任何要素 |
+
+## 7. 实现定位
+
+- 主要代码位置：`src/main/java/com/demo/contract/parse`
+- 测试位置：`src/test/java/com/demo/contract/parse`
+- 资源样例：`src/test/resources/contracts/`（**必须为虚构合同**）
+- 数据库迁移：`V2__contract.sql`、`V3__contract_text.sql`
+- 相关配置：`application.yml` 中 `app.storage.*`、`app.upload.*`
+- 关联任务：[T-006 ~ T-010](../04-tasks-and-acceptance.md#待开始)
+
+## 8. 长期决策与待办
+
+### 稳定决策
+
+| 日期 | 决策 | 原因 | 影响 |
+| --- | --- | --- | --- |
+| 待填 | 归一化必须保坐标，输出映射表 | 下游证据区间要能回原文，否则 I-02 无法实现 | extract、ai-review、report |
+| 待填 | parse 不触网 | 避免把解析失败和网络失败混成一种错误 | 排查成本 |
+| 待填 | 存储 key 用内容哈希 | 天然去重 + 幂等键复用 | I-05 |
+
+### 面试可讲点
+
+- **为什么归一化要保坐标？** → 因为下游的"AI 结论必须能定位到原文"依赖它。最初我把归一化当成纯文本清洗，结果证据区间整体偏移，才补上映射表和边界测试。
+- **扫描件你怎么处理？** → 明确不支持，并且**显式告诉用户"疑似扫描件"**，而不是返回空文本让下游误判为"无风险条款"。
+- **为什么用魔数校验而不是 Content-Type？** → Content-Type 由客户端提供，不可信。
+
+### 待办
+
+- [ ] 大文件流式处理的边界（当前 20MB 以内一次性读入内存，需记录该限制）

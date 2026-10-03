@@ -1,0 +1,39 @@
+# ===================================================================
+# 测试环境（H2 内存库，替代 Testcontainers —— 决策 D-10）
+#
+# 为什么不用 Testcontainers：
+#   本机没有 Docker，且它需要拉镜像、等容器启动，单测会慢很多。
+#   代价：H2 与 MySQL 方言有差异 —— 所以涉及 MySQL 特有用法的 SQL
+#   必须在真实 MySQL 上手工验证一次（见 docs/01 的测试取舍说明）。
+# ===================================================================
+spring:
+  datasource:
+    url: jdbc:h2:mem:contract_review_test;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:db/schema-h2.sql
+      data-locations: classpath:db/data.sql
+      continue-on-error: false
+      encoding: UTF-8
+
+  # 测试不需要真实 Redis；AI 一律走 Mock 桩（零额度消耗）
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+
+app:
+  storage:
+    root: ./target/test-files
+  ai:
+    enabled: false
+
+logging:
+  level:
+    root: WARN
+    com.demo.contract: INFO
