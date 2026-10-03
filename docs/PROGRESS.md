@@ -13,25 +13,27 @@ tags:
 
 ## 当前状态
 
-- **阶段**：Day 1 / M1「能起来」—— **已完成**
-- **当前任务**：T-004 登录与 JWT 签发校验（Day 2 起点）
+- **阶段**：Day 2 / M2「能传能看能删」—— 进行中
+- **当前任务**：T-005 租户上下文与强制隔离
 - **日期**：2026-10-03
+- **测试**：`mvn test` → **25/25 通过**
 
 ## 已完成
 
 | 任务 | 交付物 | 状态 |
 | --- | --- | --- |
-| 知识库骨架 | `docs/` 20 个 md 文件，0 坏链 | ✅ |
+| 知识库骨架 | `docs/` 21 个 md 文件，0 坏链 | ✅ |
 | 需求与范围 | [01](01-requirements-and-scope.md) 含 CRUD 定位说明 | ✅ |
-| 架构与决策 | [02](02-architecture.md) 含 D-01~D-13、不变式 I-01~I-06 | ✅ |
+| 架构与决策 | [02](02-architecture.md) 含 D-01~D-16、不变式 I-01~I-06 | ✅ |
 | 任务拆分 | [04](04-tasks-and-acceptance.md) 22 个 P0 任务 / 5 天里程碑 | ✅ |
 | 面试脚本 | [08](08-interview-and-demo-script.md) 简历 + 演示 + 问答 | ✅ |
-| **T-001 骨架** | **`mvn test` 2/2 通过（Java 21.0.12.1 + Spring Boot 3.3.5）** | ✅ |
-| **T-002 中间件** | **MySQL 8.0.40 + Redis 3.2.100 连通** | ✅ |
-| **T-003 建表与数据** | **真实 MySQL 中建出 2 表 + 2 租户 + 3 账号，中文 UTF-8 正确** | ✅ |
-| **GitHub 仓库** | **<https://github.com/zbfm123/xm>** 已推送 38 文件，提交归属账号正确 | ✅ |
+| T-001 骨架 | `mvn test` 通过（Java 21.0.12.1 + Spring Boot 3.3.5） | ✅ |
+| T-002 中间件 | MySQL 8.0.40 + Redis 3.2.100 连通 | ✅ |
+| T-003 建表与数据 | 真实 MySQL 中建出 2 表 + 2 租户 + 3 账号，中文 UTF-8 正确 | ✅ |
+| **T-004 登录与 JWT** | **25/25 测试通过；真实 MySQL 上 11 项端到端验证全过** | ✅ |
+| GitHub 仓库 | <https://github.com/zbfm123/xm> 提交归属账号正确 | ✅ |
 
-任务卡：[T-001](tasks/T-001-project-skeleton.md)
+任务卡：[T-001](tasks/T-001-project-skeleton.md) ｜ [T-004](tasks/T-004-auth-login-jwt.md)
 
 ## 环境已就绪（本机实测）
 

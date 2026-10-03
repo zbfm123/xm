@@ -138,7 +138,38 @@ curl http://localhost:8080/api/health
 `aiEnabled` 会如实反映当前走的是真实调用还是 Mock 桩——**演示前先看这一项**，
 避免出现"以为在真调模型，其实在读缓存"的误判。
 
-### 3.6 跑测试
+### 3.6 演示账号
+
+初始数据（`db/data.sql`）内置三个**虚构**账号，口令统一为 **`Demo@2026`**：
+
+| 账号 | 角色 | 租户 | 权限 |
+| --- | --- | --- | --- |
+| `staff01` | `LEGAL_STAFF` | 演示租户 | 可复核普通条目，**无权终审低置信度结论** |
+| `lead01` | `LEGAL_LEAD` | 演示租户 | 可终审低置信度条目（AI 误判的兜底人） |
+| `other01` | `LEGAL_STAFF` | 对照租户 | 用于验证跨租户隔离（A-01） |
+
+> [!note] 为什么把明文口令写在这里
+> 否则没人知道哈希对应什么口令，演示时登录不上还得反过来猜。
+> 这是本地演示数据，不是真实凭据。真实环境的口令一律走部署配置。
+
+### 3.7 认证接口自测
+
+```powershell
+# 登录
+curl.exe -s -X POST http://localhost:8080/api/auth/login -H "Content-Type: application/json" -d "{\"username\":\"staff01\",\"password\":\"Demo@2026\"}"
+
+# 用返回的 token 访问当前用户（把 <token> 换成实际值）
+curl.exe -s http://localhost:8080/api/auth/me -H "Authorization: Bearer <token>"
+```
+
+| 端点 | 鉴权 | 说明 |
+| --- | --- | --- |
+| `POST /api/auth/login` | 匿名 | 成功返回 JWT；失败 401 `BAD_CREDENTIALS`；连续失败 5 次锁定 423 `ACCOUNT_LOCKED` |
+| `POST /api/auth/logout` | 匿名（**幂等**） | 令牌写入黑名单；重复登出仍返回 204 |
+| `GET /api/auth/me` | 需登录 | 返回当前用户，用于刷新页面后恢复状态 |
+| `GET /api/health` | 匿名 | 自检，含当前 AI 通道状态 |
+
+### 3.8 跑测试
 
 ```powershell
 mvn test

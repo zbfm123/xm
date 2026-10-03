@@ -54,9 +54,13 @@ app:
 
   jwt:
     # ⚠️ 生产必须通过环境变量覆盖；仅本地开发有默认值
+    #    HS256 要求密钥 >= 32 字节，JwtProperties 会校验并在不满足时启动失败
     secret: ${JWT_SECRET:local-dev-only-secret-change-me-please-32bytes}
     expire-minutes: 120
     issuer: contract-review
+    # 连续失败 5 次锁定 15 分钟（对应 auth 模块的 ACCOUNT_LOCKED）
+    max-failures: 5
+    lock-minutes: 15
 
   # -----------------------------------------------------------------
   # AI 通道配置（决策 D-07、D-12）

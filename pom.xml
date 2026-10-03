@@ -48,6 +48,29 @@
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
 
+        <!--
+          JWT：用 JJWT 而不是 Spring Security 自带的 oauth2-jose。
+          理由：JJWT 的 API 更直白（签发/解析各一行），依赖体积小，
+          而且 0.12.x 起把算法显式化为 Jwts.SIG.HS256，不再有"自动选算法"的歧义。
+        -->
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-api</artifactId>
+            <version>0.12.6</version>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-impl</artifactId>
+            <version>0.12.6</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-jackson</artifactId>
+            <version>0.12.6</version>
+            <scope>runtime</scope>
+        </dependency>
+
         <!-- PDF 文本提取：纯 Java，无外部进程（D-09 同类理由：少一类依赖） -->
         <dependency>
             <groupId>org.apache.pdfbox</groupId>

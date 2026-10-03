@@ -38,6 +38,9 @@ tags:
 
 #### Day 2（10/4）登录 + 上传解析 + CRUD —— 目标：能传能看能删
 
+> [!note] 进度
+> T-004 ✅ 已验收（见 [任务卡](tasks/T-004-auth-login-jwt.md)），当前进行到 T-005。
+
 - [ ] T-004 登录与 JWT 签发校验  
   模块：[auth](modules/auth.md) ｜ 前置：T-003 ｜ 验收：登录拿到 Token，无 Token 访问接口返回 401
 - [ ] T-005 租户上下文与强制隔离  
@@ -90,17 +93,20 @@ tags:
 
 ### 进行中
 
-（当前无 —— T-004 待开始）
+- [ ] T-005 租户上下文与强制隔离  
+  模块：[auth](modules/auth.md) ｜ 前置：T-004 ✅ ｜ 验收：A-01 通过；有"忘记带 tenantId"的失败测试
 
 ### 已验收
 
 - [x] T-001 项目骨架与依赖收敛  
-  模块：— ｜ 任务卡：[T-001](tasks/T-001-project-skeleton.md) ｜ 验收证据：`mvn test` → `Tests run: 2, Failures: 0, Errors: 0`（Java 21.0.12.1 / Spring Boot 3.3.5）｜ 完成日期：2026-10-03
+  模块：— ｜ 任务卡：[T-001](tasks/T-001-project-skeleton.md) ｜ 验收证据：`mvn test` → 2/2（Java 21.0.12.1 / Spring Boot 3.3.5）｜ 完成日期：2026-10-03
 - [x] T-002 本机中间件连通  
-  模块：— ｜ 验收证据：MySQL 连接成功（8.0.40）；Redis `ping` → `PONG` ｜ 完成日期：2026-10-03  
-  备注：原方案为 Docker Compose，因本机未装 Docker 且中间件已是 Windows 服务，改用本机服务（变更 C-11）
+  模块：— ｜ 验收证据：MySQL 连接成功（8.0.40）；Redis `ping` → `PONG` ｜ 完成日期：2026-10-03
 - [x] T-003 表结构与初始数据  
-  模块：[auth](modules/auth.md)、[parse](modules/parse.md) ｜ 验收证据：`contract_review` 库中生成 `tenant`、`sys_user` 两表，初始数据 2 租户 + 3 账号，中文以 UTF-8 正确存储 ｜ 完成日期：2026-10-03
+  模块：[auth](modules/auth.md)、[parse](modules/parse.md) ｜ 验收证据：真实 MySQL 中生成 `tenant`、`sys_user` 两表 + 2 租户 3 账号，中文 UTF-8 正确 ｜ 完成日期：2026-10-03
+- [x] T-004 登录与 JWT 签发校验  
+  模块：[auth](modules/auth.md) ｜ 任务卡：[T-004](tasks/T-004-auth-login-jwt.md) ｜ 验收证据：`mvn test` → **25/25 通过**；真实 MySQL 上 11 项 HTTP 端到端验证全部符合预期 ｜ 完成日期：2026-10-03  
+  备注：测试暴露"登出不幂等"的设计问题，已修代码而非改测试（`/api/auth/logout` 移入白名单）
 
 ## 里程碑（按天）
 

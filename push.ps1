@@ -61,7 +61,35 @@ if ($r.Code -ne 0) {
 Write-Host "[OK] origin = $($r.Out)"
 
 # ---------------------------------------------------------------
-Write-Step 2 "暂存改动"
+# BOM 守卫
+#
+# 这台机器上踩过两次相反的坑：
+#   1) .ps1 无 BOM  -> Windows PowerShell 5.1 按 GBK 解码，中文注释破坏语法
+#   2) .java 有 BOM -> javac 报 "需要 class、interface、enum 或 record"
+# PowerShell 的 Set-Content -Encoding UTF8 会给 Java 文件加上 BOM，
+# 这类问题不该靠人记得，所以在这里拦住。
+Write-Step 2 "检查文件 BOM"
+$bomProblems = @()
+Get-ChildItem -Path $PSScriptRoot -Recurse -File -Include *.java, *.yml, *.yaml, *.sql, *.xml -ErrorAction SilentlyContinue |
+    Where-Object { $_.FullName -notmatch '\\target\\|\\node_modules\\|\\.git\\' } |
+    ForEach-Object {
+        $b = [System.IO.File]::ReadAllBytes($_.FullName)
+        if ($b.Length -ge 3 -and $b[0] -eq 0xEF -and $b[1] -eq 0xBB -and $b[2] -eq 0xBF) {
+            $bomProblems += $_.FullName.Replace($PSScriptRoot + '\', '')
+        }
+    }
+
+if ($bomProblems.Count -gt 0) {
+    Write-Host "[X] 以下文件带了 UTF-8 BOM，javac 无法解析：" -ForegroundColor Red
+    $bomProblems | ForEach-Object { Write-Host "    $_" -ForegroundColor Yellow }
+    Write-Host "    修复：以无 BOM 的 UTF-8 重写这些文件（不要用 Set-Content -Encoding UTF8）。" -ForegroundColor Yellow
+    Write-Host "    注意：.ps1 相反，必须带 BOM，否则 PowerShell 会按 GBK 解码中文。" -ForegroundColor Gray
+    exit 1
+}
+Write-Host "[OK] 无需（Java/资源文件无 BOM）"
+
+# ---------------------------------------------------------------
+Write-Step 3 "暂存改动"
 $null = Invoke-Git @("add", "-A")
 $stagedNames = (Invoke-Git @("diff", "--cached", "--name-only")).Out
 if (-not $stagedNames) {
@@ -77,7 +105,7 @@ $stagedNames -split "`n" | ForEach-Object { Write-Host "    $_" }
 
 # ---------------------------------------------------------------
 if (-not $SkipSecretCheck) {
-    Write-Step 3 "敏感信息检查"
+    Write-Step 4 "敏感信息检查"
     $diff = (Invoke-Git @("diff", "--cached")).Out
 
     $rules = @(
@@ -87,8 +115,16 @@ if (-not $SkipSecretCheck) {
         # 不直接写弱口令字面量：否则脚本扫描自己时会误报
         @{ Name = "口令疑似生日"; Pattern = '(?i)(password|passwd|pwd)\s*[:=]\s*["'']?(19|20)\d{2}' }
     )
-    # 占位符与示例值不算
-    $allow = '\$\{|\$env:|<你的|<your|example|placeholder|CHANGE_ME|your-password|你的密码'
+    # 占位符与已知的公开演示凭据不算。
+    #
+    # 为什么把 Demo@2026 也放进来：它是 data.sql 里三个虚构演示账号的口令，
+    # 我们**故意**把它写进 README 和建表脚本——否则没人知道哈希对应什么口令，
+    # 演示时登录不上还得反向猜。它不是秘密。
+    #
+    # 反之，如果对已知无害的情况也报警，人就会习惯性地加 -SkipSecretCheck，
+    # 等真的泄露了也一样跳过。**扫描器的价值取决于它有多可信。**
+    # 所以这里显式列举，而不是放宽规则本身。
+    $allow = '\$\{|\$env:|<你的|<your|example|placeholder|CHANGE_ME|your-password|你的密码|Demo@2026'
 
     $found = @()
     foreach ($rule in $rules) {
@@ -105,12 +141,12 @@ if (-not $SkipSecretCheck) {
     }
     Write-Host "[OK] 未检测到明显敏感信息"
 } else {
-    Write-Step 3 "敏感信息检查"
+    Write-Step 4 "敏感信息检查"
     Write-Host "[i] 已跳过（-SkipSecretCheck）" -ForegroundColor Yellow
 }
 
 # ---------------------------------------------------------------
-Write-Step 4 "提交"
+Write-Step 5 "提交"
 $c = Invoke-Git @("commit", "-q", "-m", $Message)
 if ($c.Code -ne 0) {
     Write-Host "[X] 提交失败：$($c.Out)" -ForegroundColor Red
@@ -125,7 +161,7 @@ if ($NoPush) {
 }
 
 # ---------------------------------------------------------------
-Write-Step 5 "推送到 GitHub"
+Write-Step 6 "推送到 GitHub"
 $up = Invoke-Git @("rev-parse", "--abbrev-ref", "@{upstream}")
 if ($up.Code -eq 0) { $p = Invoke-Git @("push") } else { $p = Invoke-Git @("push", "-u", "origin", "main") }
 
