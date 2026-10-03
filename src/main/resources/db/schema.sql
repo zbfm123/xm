@@ -43,8 +43,42 @@ CREATE TABLE IF NOT EXISTS sys_user (
 
 -- ===================================================================
 -- 以下表按后续任务追加（不要提前建，避免与未实现的功能不一致）：
---   Day 5 / T-017  review_task
+--   无
 -- ===================================================================
+
+-- -------------------------------------------------------------------
+-- 审查任务（Day 4 / T-017）
+--
+-- 为什么需要一张独立的任务表，而不是复用 contract.status：
+--   1. **可重入**：同一份合同可以有多次审查（改判后重跑），
+--      任务表保留每次的历史，contract.status 只是"当前"状态
+--   2. **幂等键**：重复提交要返回同一个 taskId，
+--      这需要一个稳定的唯一键，contract 上放不下
+--   3. **职责不同**：contract.status 描述**数据**状态（已解析/已校验），
+--      task.status 描述**流程**状态（处理中/待人工复核）
+--
+-- idempotency_key 的语义与 review_action 一致：
+--   同一个键只产生一个任务，重复提交返回既有的 taskId。
+--   没有它，用户双击"开始审查"就会建出两个任务、两套结论。
+-- -------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS review_task (
+    id              BIGINT       NOT NULL AUTO_INCREMENT,
+    tenant_id       BIGINT       NOT NULL COMMENT '所属租户',
+    contract_id     BIGINT       NOT NULL COMMENT '合同ID',
+    idempotency_key VARCHAR(128) NOT NULL COMMENT '幂等键：重复提交返回同一 taskId',
+    status          VARCHAR(32)  NOT NULL COMMENT '见 ReviewTaskStatus',
+    status_reason   VARCHAR(512) NULL COMMENT '状态说明，例如降级原因',
+    ai_available    TINYINT(1)   NOT NULL DEFAULT 1 COMMENT '本次执行时 AI 通道是否可用',
+    total_findings  INT          NOT NULL DEFAULT 0 COMMENT 'AI 候选结论总数',
+    reviewed_count  INT          NOT NULL DEFAULT 0 COMMENT '已人工复核的条数',
+    created_by      BIGINT       NOT NULL COMMENT '创建人',
+    created_at      DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at      DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_review_task_idem (tenant_id, idempotency_key),
+    KEY idx_review_task_contract (tenant_id, contract_id, id),
+    KEY idx_review_task_status (tenant_id, status)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT '审查任务（状态机）';
 
 -- -------------------------------------------------------------------
 -- 人工复核动作（Day 4 / T-018）—— **只追加，永不修改、永不删除**

@@ -267,6 +267,32 @@ curl.exe -s http://localhost:8080/api/auth/me -H "Authorization: Bearer <token>"
 | `sparse` | 无要素、且自带触发幻觉的标记 | 规则 3 条 `UNDETERMINED`；**AI 审查出现 `EVIDENCE_MISMATCH`** |
 | `risky` | 含四类典型风险条款 | AI 审查产出 4 条 `PENDING` 候选，全部证据已定位 |
 
+### 审查任务状态机
+
+| 端点 | 说明 |
+| --- | --- |
+| `POST /api/contracts/{id}/review-tasks` | 启动审查任务。body：`{idempotencyKey}`，**幂等**——重复提交返回同一 `taskId` 且不重跑 |
+| `GET /api/review-tasks/{taskId}` | 查任务状态，响应含 `allowedNextStatuses` |
+| `GET /api/contracts/{id}/review-tasks` | 该合同的全部任务（保留多次审查历史） |
+| `POST /api/review-tasks/{taskId}/refresh` | 刷新进度（按已复核条数决定是否完成） |
+| `POST /api/review-tasks/{taskId}/proceed` | **降级后继续进入人工复核** |
+
+```
+PENDING ──→ IN_PROGRESS ──→ AWAITING_REVIEW ──→ COMPLETED
+                 │                  ↑
+                 └──→ AI_UNAVAILABLE ┘
+```
+
+> [!important] 两条关键设计
+> **1. `AI_UNAVAILABLE` 不是终态。** 它有一条边通向 `AWAITING_REVIEW`——
+> 降级后规则结论与要素抽取都还在，人工照常工作。
+> 设成失败终态就等于"AI 挂了整份审查就废了"，直接违反 I-04。
+>
+> **2. `CANCELLED` 不能从终态进入。** "已完成"不能变成可撤销。
+>
+> 另外，任务表与合同状态是两件事：
+> `contract.status` 是**数据**状态（已解析/已校验），`task.status` 是**流程**状态。
+
 ### 人工复核与只追加审计
 
 | 端点 | 说明 |

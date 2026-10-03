@@ -95,4 +95,20 @@ public interface AiFindingMapper {
                      @Param("tenantId") Long tenantId,
                      @Param("newStatus") String newStatus,
                      @Param("statusReason") String statusReason);
+
+    /**
+     * 统计某合同下已被人工复核的结论条数。
+     *
+     * <p>判据是状态属于"已处理"集合（{@code ACCEPTED}/{@code REJECTED}），
+     * 而不是"有复核记录"——同一条结论可能先升级再驳回，
+     * 按记录数统计会把一次复核算成多次。
+     */
+    @Select("""
+            SELECT COUNT(*)
+              FROM ai_finding
+             WHERE contract_id = #{contractId}
+               AND tenant_id = #{tenantId}
+               AND status IN ('ACCEPTED', 'REJECTED')
+            """)
+    int countReviewed(@Param("contractId") Long contractId, @Param("tenantId") Long tenantId);
 }

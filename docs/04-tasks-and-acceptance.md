@@ -93,10 +93,13 @@ tags:
 
 ### 进行中
 
-（当前无 —— T-017 待开始）
+（当前无 —— T-019 待开始）
 
 ### 已验收
 
+- [x] **T-017 审查任务状态机与幂等**  
+  模块：[workflow](modules/workflow.md) ｜ 任务卡：[T-017](tasks/T-017-review-task-state-machine.md) ｜ 验收证据：**穷举单测通过**（6×6 = 36 个状态对全部断言，含"不可自环""终态无出边""不可回到 PENDING"）；**重复提交返回同一 taskId** 且不重跑流程；`AI_UNAVAILABLE` 有边通向 `AWAITING_REVIEW`（I-04）；非法迁移抛异常且状态不变；删除合同清理任务但**保留审计** ｜ 完成日期：2026-10-03  
+  备注：过程中发现自己过度设计了一次（单方法接口），已改回直接注入 Mapper
 - [x] **T-018 人工复核与只追加审计**  
   模块：[workflow](modules/workflow.md) ｜ 任务卡：[T-018](tasks/T-018-append-only-audit.md) ｜ 验收证据：**A-07 / A-09 通过**——真实 MySQL 上复核动作链式相连（第 2 条 `previousHash` = 第 1 条 `recordHash`）；幂等重放不产生第二条；**MySQL 触发器拒绝 UPDATE/DELETE**（`ERROR 1644`）；改动记录后 `verifyChain` 返回 `intact=false` 并指出断点；**删除合同后审计记录 2 → 2 仍保留** ｜ 完成日期：2026-10-03  
   备注：修复 3 个 bug（不可变类触发按列顺序映射、**MyBatis 一级缓存让篡改检测失效**、H2 保留字）

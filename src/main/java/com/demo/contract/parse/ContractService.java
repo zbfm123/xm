@@ -51,6 +51,7 @@ public class ContractService {
     private final com.demo.contract.rule.mapper.RuleFindingMapper ruleFindingMapper;
     private final com.demo.contract.extract.mapper.ContractElementMapper contractElementMapper;
     private final com.demo.contract.aireview.mapper.AiFindingMapper aiFindingMapper;
+    private final com.demo.contract.review.mapper.ReviewTaskMapper reviewTaskMapper;
     private final long maxSizeBytes;
 
     public ContractService(ContractMapper contractMapper,
@@ -60,6 +61,7 @@ public class ContractService {
                            com.demo.contract.rule.mapper.RuleFindingMapper ruleFindingMapper,
                            com.demo.contract.extract.mapper.ContractElementMapper contractElementMapper,
                            com.demo.contract.aireview.mapper.AiFindingMapper aiFindingMapper,
+                           com.demo.contract.review.mapper.ReviewTaskMapper reviewTaskMapper,
                            @Value("${app.upload.max-size-bytes}") long maxSizeBytes) {
         this.contractMapper = contractMapper;
         this.contractTextMapper = contractTextMapper;
@@ -68,6 +70,7 @@ public class ContractService {
         this.ruleFindingMapper = ruleFindingMapper;
         this.contractElementMapper = contractElementMapper;
         this.aiFindingMapper = aiFindingMapper;
+        this.reviewTaskMapper = reviewTaskMapper;
         this.maxSizeBytes = maxSizeBytes;
     }
 
@@ -249,6 +252,9 @@ public class ContractService {
         int ruleRows = ruleFindingMapper.deleteByContract(id, tenantId);
         int elementRows = contractElementMapper.deleteByContract(id, tenantId);
         int aiFindingRows = aiFindingMapper.deleteByContract(id, tenantId);
+        // ⚠️ review_action **刻意不在这里清理**：审计痕迹要独立保留（决策 D-49）。
+        // review_task 是流程状态而非审计事实，随合同清理。
+        int taskRows = reviewTaskMapper.deleteByContract(id, tenantId);
 
         boolean fileRemoved = false;
         try {
@@ -271,9 +277,9 @@ public class ContractService {
         // 日志把每类清理行数都列出：孤儿数据不会报错，
         // 但如果这里能看到某类始终为 0 而实际有数据，就说明漏登记了
         log.info("合同删除完成: tenant={} id={} 正文行={} 规则结论={} 要素行={} AI结论={} "
-                        + "文件={} 缓存条数={}",
+                        + "审查任务={} 文件={} 缓存条数={}（审计记录 review_action 刻意保留）",
                 tenantId, id, textRows, ruleRows, elementRows, aiFindingRows,
-                fileRemoved, cacheEvicted);
+                taskRows, fileRemoved, cacheEvicted);
     }
 
     // ==================================================================

@@ -140,3 +140,20 @@ CREATE TABLE IF NOT EXISTS review_action (
     PRIMARY KEY (id),
     CONSTRAINT uk_review_action_idem UNIQUE (tenant_id, idempotency_key)
 );
+
+CREATE TABLE IF NOT EXISTS review_task (
+    id              BIGINT        NOT NULL AUTO_INCREMENT,
+    tenant_id       BIGINT        NOT NULL,
+    contract_id     BIGINT        NOT NULL,
+    idempotency_key VARCHAR(128)  NOT NULL,
+    status          VARCHAR(32)   NOT NULL,
+    status_reason   VARCHAR(512)  NULL,
+    ai_available    TINYINT       NOT NULL DEFAULT 1,
+    total_findings  INT           NOT NULL DEFAULT 0,
+    reviewed_count  INT           NOT NULL DEFAULT 0,
+    created_by      BIGINT        NOT NULL,
+    created_at      TIMESTAMP(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    CONSTRAINT uk_review_task_idem UNIQUE (tenant_id, idempotency_key)
+);
