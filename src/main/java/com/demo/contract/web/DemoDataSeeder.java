@@ -1,6 +1,7 @@
 package com.demo.contract.web;
 
 import com.demo.contract.aireview.AiReviewService;
+import com.demo.contract.extract.ElementExtractionService;
 import com.demo.contract.aireview.client.AiCallException;
 import com.demo.contract.auth.domain.CurrentUser;
 import com.demo.contract.auth.domain.Role;
@@ -79,6 +80,7 @@ public class DemoDataSeeder {
     private final ContractService contractService;
     private final ContractParsingService parsingService;
     private final RuleCheckService ruleCheckService;
+    private final ElementExtractionService extractionService;
     private final AiReviewService aiReviewService;
     private final ReviewTaskService taskService;
     private final UserMapper userMapper;
@@ -86,12 +88,14 @@ public class DemoDataSeeder {
     public DemoDataSeeder(ContractService contractService,
                           ContractParsingService parsingService,
                           RuleCheckService ruleCheckService,
+                          ElementExtractionService extractionService,
                           AiReviewService aiReviewService,
                           ReviewTaskService taskService,
                           UserMapper userMapper) {
         this.contractService = contractService;
         this.parsingService = parsingService;
         this.ruleCheckService = ruleCheckService;
+        this.extractionService = extractionService;
         this.aiReviewService = aiReviewService;
         this.taskService = taskService;
         this.userMapper = userMapper;
@@ -216,6 +220,23 @@ public class DemoDataSeeder {
             parsingService.parse(contractId);
             var rule = ruleCheckService.check(contractId);
 
+            // ⚠️ 必须显式跑一次要素抽取，否则详情页的「抽取到的要素」是空的。
+            //
+            // 踩过这个坑：规则校验内部用**确定性正则**抽了一轮要素用于判定，
+            // 但它**不落库**到 contract_element（那是 AI 抽取那条链路负责的）。
+            // 结果演示时点开详情，"规则结论"有 4 条、"要素"却是 0 个——
+            // 看起来像抽取功能坏了，其实是压根没调用。
+            //
+            // 在降级通道下这一步会抛 AiCallException，属预期，忽略即可：
+            // 那时要素确实抽不出来，而详情页会如实显示为空并说明原因。
+            String elemNote;
+            try {
+                var extraction = extractionService.extract(contractId);
+                elemNote = "要素 " + extraction.aligned() + "/" + extraction.total();
+            } catch (AiCallException e) {
+                elemNote = "要素抽取降级（" + e.getCode() + "）";
+            }
+
             String aiNote = "未执行 AI";
             if (runAi) {
                 try {
@@ -227,8 +248,9 @@ public class DemoDataSeeder {
                 }
             }
 
-            log.info("演示合同已就绪: id={} 《{}》 规则命中{} 通过{} 无法判定{}  {}",
-                    contractId, label, rule.hits(), rule.passes(), rule.undetermined(), aiNote);
+            log.info("演示合同已就绪: id={} 《{}》 规则命中{} 通过{} 无法判定{}  {}  {}",
+                    contractId, label, rule.hits(), rule.passes(), rule.undetermined(),
+                    elemNote, aiNote);
 
         } catch (RuntimeException e) {
             log.warn("准备演示合同失败: {} - {}", label, e.toString());
