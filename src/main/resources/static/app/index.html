@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>登录 · 合同智能审查平台</title>
+<link rel="stylesheet" href="./assets/app.css">
+<style>
+    .login-wrap { max-width: 400px; margin: 8vh auto; padding: 0 20px; }
+    .login-wrap h1 { font-size: 20px; margin: 0 0 6px; }
+    .login-wrap .sub { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+    .demo-accounts { margin-top: 16px; font-size: 12px; }
+    .demo-accounts table { font-size: 12px; }
+    .demo-accounts td { padding: 4px 8px; }
+</style>
+</head>
+<body>
+
+<div class="login-wrap">
+    <h1>合同智能审查平台</h1>
+    <div class="sub">证据可核验 · 结论可追溯 · AI 不可用可降级</div>
+
+    <div id="msg"></div>
+
+    <div class="card">
+        <form id="loginForm" onsubmit="return doLogin(event)">
+            <div style="margin-bottom:12px">
+                <label for="username">账号</label>
+                <input type="text" id="username" autocomplete="username" required
+                       placeholder="staff01">
+            </div>
+            <div style="margin-bottom:16px">
+                <label for="password">口令</label>
+                <input type="password" id="password" autocomplete="current-password" required
+                       placeholder="Demo@2026">
+            </div>
+            <button type="submit" id="submitBtn" style="width:100%">登录</button>
+        </form>
+
+        <div class="demo-accounts">
+            <div class="muted" style="margin-bottom:6px">演示账号（口令均为 <span class="mono">Demo@2026</span>）：</div>
+            <table>
+                <tr>
+                    <td class="mono">staff01</td>
+                    <td>法务专员</td>
+                    <td><a href="#" onclick="fill('staff01');return false">填入</a></td>
+                </tr>
+                <tr>
+                    <td class="mono">lead01</td>
+                    <td>法务主管</td>
+                    <td><a href="#" onclick="fill('lead01');return false">填入</a></td>
+                </tr>
+                <tr>
+                    <td class="mono">other01</td>
+                    <td class="muted">对照租户（验证隔离）</td>
+                    <td><a href="#" onclick="fill('other01');return false">填入</a></td>
+                </tr>
+            </table>
+        </div>
+    </div>
+
+    <div class="card" style="background:#fafbfc">
+        <div class="small muted">
+            <b>提示</b>：登录后列表里已有 3 份自动准备的虚构合同，覆盖三种演示场景
+            （要素齐全 / 要素缺失 / 含风险条款）。<b>不需要自己准备文件。</b>
+        </div>
+    </div>
+</div>
+
+<script src="./assets/api.js"></script>
+<script>
+function fill(name) {
+    document.getElementById('username').value = name;
+    document.getElementById('password').value = 'Demo@2026';
+    document.getElementById('username').focus();
+}
+
+async function doLogin(e) {
+    e.preventDefault();
+    const btn = document.getElementById('submitBtn');
+    const box = document.getElementById('msg');
+    btn.disabled = true;
+    btn.textContent = '登录中…';
+    box.innerHTML = '';
+
+    const res = await api('POST', '/api/auth/login', {
+        username: document.getElementById('username').value.trim(),
+        password: document.getElementById('password').value
+    });
+
+    btn.disabled = false;
+    btn.textContent = '登录';
+
+    if (!res.ok) {
+        box.innerHTML = errorHtml(res, '登录失败');
+        return false;
+    }
+
+    Auth.save(res.data.token, res.data.user);
+    const next = qs('next');
+    location.href = next || './contracts.html';
+    return false;
+}
+
+// 页面加载：已登录则直接进列表；带 expired 参数时提示会话失效
+(function init() {
+    if (qs('expired')) {
+        document.getElementById('msg').innerHTML =
+            '<div class="alert warn">会话已过期，请重新登录。</div>';
+        Auth.clear();
+    } else if (Auth.token) {
+        location.href = './contracts.html';
+        return;
+    }
+    document.getElementById('username').focus();
+})();
+</script>
+</body>
+</html>

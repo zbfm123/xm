@@ -21,6 +21,8 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.ArrayList;
+import java.util.List;
 import java.time.Duration;
 
 /**
@@ -128,29 +130,58 @@ public class DemoDataSeeder {
         // 于是安静地重复执行。现在异常会打 warn 并带上原因。
         CurrentUser.set(staff.getId(), staff.getTenantId(), staff.getUsername(), staff.getRole());
 
-        if (alreadySeeded(staff.getTenantId())) {
-            log.info("演示数据已存在，跳过（幂等）");
+        // ⚠️ 逐个模板检查，而不是"有任意演示数据就整体跳过"。
+        //
+        // 后者有个实际会遇到的弱点：演示中有人删掉其中一份（或者在界面上
+        // 点删除做演示），重启后**剩下两份会被当成"已播种"**，
+        // 于是永远补不回第三份——演示集就残缺了，而日志显示一切正常。
+        //
+        // 逐份检查让播种变成"补齐缺失的那几份"，既不重复也不残缺。
+        List<DemoContract> contracts = List.of(
+                new DemoContract("要素齐全（无风险条款）", "well-formed"),
+                new DemoContract("要素缺失（演示三态）", "sparse"),
+                new DemoContract("含风险条款（演示 AI 与复核）", "risky"));
+
+        List<DemoContract> missing = new ArrayList<>();
+        for (DemoContract d : contracts) {
+            if (!exists(staff.getTenantId(), d)) {
+                missing.add(d);
+            }
+        }
+
+        if (missing.isEmpty()) {
+            log.info("演示数据已完整（3 份），跳过（幂等）");
             return;
         }
 
-        log.info("开始准备演示数据（虚构合同，共 3 份）…");
-
-        prepare(port, "要素齐全（无风险条款）", "well-formed", true);
-        prepare(port, "要素缺失（演示三态）", "sparse", true);
-        prepare(port, "含风险条款（演示 AI 与复核）", "risky", true);
+        log.info("开始准备演示数据：需补齐 {} 份（共 3 份）…", missing.size());
+        for (DemoContract d : missing) {
+            prepare(port, d.label(), d.template(), true);
+        }
 
         log.info("演示数据准备完成。打开 http://localhost:{} 用 staff01 / Demo@2026 登录", port);
     }
 
-    private boolean alreadySeeded(Long tenantId) {
+    /** 一份演示合同的定义。 */
+    private record DemoContract(String label, String template) {
+    }
+
+    /**
+     * 检查某份演示合同是否已存在。
+     *
+     * <p>按<b>标题精确匹配</b>而不是模糊前缀：前缀匹配在中途删掉一份、
+     * 又新增一份同名的情况下会误判。
+     */
+    private boolean exists(Long tenantId, DemoContract d) {
         try {
-            var page = contractService.list(PREFIX, null, 1, 5);
-            log.info("幂等检查: 前缀=「{}」 命中总数={} 本页={} （tenant={}）",
-                    PREFIX, page.total(), page.items().size(), tenantId);
-            return page.total() > 0;
+            var page = contractService.list(PREFIX + d.label(), null, 1, 20);
+            boolean found = page.items().stream()
+                    .anyMatch(c -> (PREFIX + d.label()).equals(c.title()));
+            log.debug("演示数据检查: 《{}》 存在={} （tenant={}）", d.label(), found, tenantId);
+            return found;
         } catch (RuntimeException e) {
             // ⚠️ 不能静默吞掉：幂等检查失败会导致每次启动都重复播种
-            log.warn("幂等检查失败，将按未播种处理（可能导致重复演示数据）: {}: {}",
+            log.warn("演示数据检查失败，将按缺失处理（可能重复播种）: {}: {}",
                     e.getClass().getSimpleName(), e.getMessage());
             return false;
         }

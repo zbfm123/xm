@@ -44,11 +44,12 @@ public class SecurityConfig {
             "/api/health",
             "/api/auth/login",
             "/api/auth/logout",
-            // 自带调试页：单文件、零构建，直接由 Spring Boot 托管静态资源。
-            // 它只做前端壳，所有数据仍走需要认证的接口，因此放行静态文件不降低安全性。
+            // 前端页面：零构建的静态壳，所有数据仍走需要认证的接口。
+            // 放行静态文件不降低安全性——页面本身不含任何业务数据。
             "/",
             "/index.html",
             "/favicon.ico",
+            "/app/**",
             // 示例合同 PDF 生成（仅在 dev/test 环境注册，见 SampleContractController）
             "/api/debug/**"
     };

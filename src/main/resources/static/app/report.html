@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>审查报告 · 合同智能审查平台</title>
+<link rel="stylesheet" href="./assets/app.css">
+<style>
+    .report-head { border-bottom: 2px solid var(--text); padding-bottom: 10px; margin-bottom: 18px; }
+    .report-head h1 { font-size: 20px; margin: 0 0 6px; }
+    .meta-table td { border: none; padding: 2px 16px 2px 0; font-size: 12px; }
+    .meta-table td:first-child { color: var(--muted); }
+</style>
+</head>
+<body>
+
+<main>
+    <div id="msg"></div>
+
+    <div class="no-print card" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <button onclick="window.print()">打印 / 存为 PDF</button>
+        <button class="ghost" onclick="location.href='./detail.html?id=${qs('id')}'">返回详情</button>
+        <div class="grow" style="flex:1"></div>
+        <select id="picker" onchange="if(this.value)location.href='./report.html?id='+this.value"
+                style="width:auto;min-width:220px"></select>
+    </div>
+
+    <div id="report"><div class="empty">加载中…</div></div>
+</main>
+
+<script src="./assets/api.js"></script>
+<script>
+const cid = qs('id');
+if (!Auth.require()) { /* 跳转中 */ } else {
+    renderTopbar('report');
+    loadPicker();
+    if (cid) { build(); } else {
+        document.getElementById('report').innerHTML =
+            '<div class="empty">请先在上方选择一份合同。</div>';
+    }
+}
+
+async function loadPicker() {
+    const res = await api('GET', '/api/contracts?page=1&size=100');
+    if (!res.ok) return;
+    const sel = document.getElementById('picker');
+    sel.innerHTML = '<option value="">选择合同…</option>' + res.data.items.map(c =>
+        `<option value="${c.id}" ${String(c.id) === String(cid) ? 'selected' : ''}>
+            #${c.id} ${esc(c.title || c.originalFilename)}
+        </option>`).join('');
+}
+
+async function build() {
+    const [head, findings, ai, reviews, chain] = await Promise.all([
+        api('GET', '/api/contracts/' + cid),
+        api('GET', `/api/contracts/${cid}/findings`),
+        api('GET', `/api/contracts/${cid}/ai-findings?reportableOnly=true`),
+        api('GET', `/api/contracts/${cid}/reviews`),
+        api('GET', `/api/contracts/${cid}/reviews/verify`)
+    ]);
+
+    if (!head.ok) {
+        document.getElementById('report').innerHTML = errorHtml(head, '读取合同失败');
+        return;
+    }
+
+    const c = head.data;
+    const rules = findings.ok ? findings.data : [];
+    const aiList = ai.ok ? ai.data : [];
+    const actionList = reviews.ok ? reviews.data : [];
+    const v = chain.ok ? chain.data : null;
+
+    const hits = rules.filter(f => f.result === 'HIT');
+    const undetermined = rules.filter(f => f.result === 'UNDETERMINED');
+    const passes = rules.filter(f => f.result === 'PASS');
+
+    const accepted = actionList.filter(r => r.newStatus === 'ACCEPTED');
+    const rejected = actionList.filter(r => r.newStatus === 'REJECTED');
+    const noRiskConfirmed = actionList.some(r => r.newStatus === 'CONFIRMED_NO_RISK');
+
+    document.getElementById('report').innerHTML = `
+        <div class="report-head">
+            <h1>合同审查报告</h1>
+            <table class="meta-table">
+                <tr><td>合同</td><td><b>${esc(c.title || c.originalFilename)}</b>（#${c.id}）</td>
+                    <td>状态</td><td>${esc(c.status)}</td></tr>
+                <tr><td>文件</td><td class="mono">${esc(c.originalFilename || '')}</td>
+                    <td>生成时间</td><td>${esc(fmtTime(new Date().toISOString()))}</td></tr>
+                <tr><td>审查人</td><td>${esc((Auth.user || {}).displayName || (Auth.user || {}).username || '')}</td>
+                    <td>审计链</td><td>${v
+                        ? (v.intact
+                            ? `<span class="tag ok">完好</span>（已校验 ${v.checked} 条）`
+                            : `<span class="tag err">已断</span> 第 ${v.brokenAt} 条`)
+                        : '—'}</td></tr>
+            </table>
+        </div>
+
+        <!-- 结论摘要 -->
+        <div class="card">
+            <h2>一、结论摘要</h2>
+            <table>
+                <thead><tr><th style="width:40%">来源</th><th>结果</th></tr></thead>
+                <tbody>
+                    <tr>
+                        <td><b>确定性规则校验</b>
+                            <div class="muted small">不联网、可复现</div></td>
+                        <td>
+                            <span class="tag err">命中 ${hits.length}</span>
+                            <span class="tag ok">通过 ${passes.length}</span>
+                            <span class="tag unknown">无法判定 ${undetermined.length}</span>
+                            <div class="muted small" style="margin-top:6px">
+                                「无法判定」表示<b>输入不足</b>，不等于通过。
+                            </div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><b>AI 风险识别</b>
+                            <div class="muted small">仅产出候选，须人工采信</div></td>
+                        <td>
+                            候选 <b>${aiList.length}</b> 条
+                            ${aiList.length !== (ai.ok ? ai.data.length : 0) ? '' : ''}
+                            <div class="muted small" style="margin-top:6px">
+                                证据无法定位的结论<b>已排除在本报告之外</b>。
+                            </div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td><b>人工复核</b></td>
+                        <td>
+                            <span class="tag ok">已采纳 ${accepted.length}</span>
+                            <span class="tag unknown">已驳回 ${rejected.length}</span>
+                            ${noRiskConfirmed
+                                ? '<span class="tag ok">已确认整份合同无风险</span>' : ''}
+                            <div class="muted small" style="margin-top:6px">
+                                共 ${actionList.length} 条复核记录，全部只追加、不可修改。
+                            </div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+            ${undetermined.length && actionList.length === 0 ? `
+            <div class="alert warn" style="margin-top:12px">
+                <b>注意：本报告尚无人工复核记录。</b>
+                规则里有 ${undetermined.length} 条「无法判定」——它们不等同于通过，
+                需要人工判断后才能出具结论。
+            </div>` : ''}
+        </div>
+
+        <!-- 规则明细 -->
+        <div class="card">
+            <h2>二、确定性规则校验明细</h2>
+            ${rules.length ? `<table>
+                <thead><tr>
+                    <th style="width:11%">结论</th><th style="width:22%">规则</th><th>依据</th>
+                </tr></thead>
+                <tbody>${rules.map(f => `<tr>
+                    <td>${ruleTag(f.result)}</td>
+                    <td>${esc(f.ruleName)}<div class="muted small mono">${esc(f.ruleCode)}</div></td>
+                    <td>${esc(f.detail || '')}
+                        ${f.evidence ? `<div class="evidence">${esc(f.evidence)}</div>` : ''}</td>
+                </tr>`).join('')}</tbody></table>`
+                : '<div class="empty">未执行规则校验</div>'}
+        </div>
+
+        <!-- AI 明细：只列可进正文的 -->
+        <div class="card">
+            <h2>三、AI 风险候选（证据已核验）</h2>
+            ${aiList.length ? aiList.map(f => `
+                <div style="margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--line)">
+                    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+                        ${aiTag(f.status)}
+                        <b>${esc(f.riskType)}</b>
+                        <span class="muted small">置信度 ${f.confidence}
+                            · 证据级别 ${esc(f.matchLevel || '')}
+                            · 模型 ${esc(f.modelVersion)} / 提示词 ${esc(f.promptVersion)}</span>
+                    </div>
+                    <div style="margin-top:6px">
+                        <span class="muted small">原文引文（已核验位置 [${f.charStart}, ${f.charEnd})）：</span>
+                        <div class="evidence">${esc(f.quote)}</div>
+                    </div>
+                </div>`).join('')
+                : '<div class="empty">无可进入报告的 AI 结论</div>'}
+        </div>
+
+        <!-- 复核留痕 -->
+        <div class="card">
+            <h2>四、人工复核留痕</h2>
+            ${actionList.length ? `<table>
+                <thead><tr>
+                    <th style="width:13%">动作</th><th style="width:15%">操作人</th>
+                    <th style="width:14%">状态变化</th><th>理由</th><th style="width:16%">时间</th>
+                </tr></thead>
+                <tbody>${actionList.map(r => `<tr>
+                    <td>${aiTag(r.newStatus)}</td>
+                    <td>${esc(r.operatorName || '')}</td>
+                    <td class="small">${esc(r.previousStatus || '—')} → ${esc(r.newStatus)}</td>
+                    <td>${esc(r.reason || '')}
+                        <div class="muted small mono">哈希 ${esc((r.recordHash || '').slice(0, 16))}…</div></td>
+                    <td class="muted small">${esc(fmtTime(r.createdAt))}</td>
+                </tr>`).join('')}</tbody></table>`
+                : '<div class="empty">尚无人工复核记录</div>'}
+            <div class="small muted" style="margin-top:10px">
+                复核记录只追加、不可修改、不可删除。数据库层的
+                <span class="mono">BEFORE UPDATE / BEFORE DELETE</span> 触发器会拒绝改动，
+                每条记录还用哈希链与前一条相连，事后改动可被检测。
+            </div>
+        </div>
+
+        <!-- 免责与边界：必须在报告里，不能只写在文档里 -->
+        <div class="card">
+            <h2>五、结论边界与已知限制</h2>
+            <ul class="small" style="margin:0;padding-left:20px">
+                <li><b>规则严重级别来自业务常识设定，没有真实法务依据。</b>
+                    真实系统中级别应来自业务方的风险清单。</li>
+                <li><b>哈希链防篡改，不防抵赖。</b>
+                    知道算法与字段顺序的人可以重算整条链；
+                    真正的不可抵赖需要外部时间戳或数字签名。</li>
+                <li><b>AI 结论的完整性受限于提示词与实际模型表现，本报告仅呈现证据可核验的部分。</b>
+                    "未列出风险"不等于"不存在风险"。</li>
+                <li><b>扫描件（图片型 PDF）目前无法提取文本</b>，会被显式标记而不是当成"无风险"。</li>
+                <li>要素抽取与风险识别均由大模型辅助完成，<b>不构成法律意见</b>。</li>
+            </ul>
+        </div>
+
+        <div class="small muted" style="text-align:center;margin-top:20px">
+            合同智能审查平台 · 本报告由系统生成，人工复核意见以第四节为准
+        </div>`;
+}
+</script>
+</body>
+</html>

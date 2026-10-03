@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>合同详情 · 合同智能审查平台</title>
+<link rel="stylesheet" href="./assets/app.css">
+</head>
+<body>
+
+<main>
+    <div id="msg"></div>
+    <div id="head"></div>
+
+    <!-- 审查动作 -->
+    <div class="card no-print">
+        <h2><span class="step">▶</span>执行审查</h2>
+        <div class="row">
+            <div class="fixed"><button onclick="doParse()" id="btnParse">重新解析</button></div>
+            <div class="fixed"><button onclick="doRule()" id="btnRule">规则校验</button></div>
+            <div class="fixed"><button onclick="doExtract()" id="btnExtract">要素抽取（AI）</button></div>
+            <div class="fixed"><button onclick="doAiReview()" id="btnAi">AI 风险审查</button></div>
+            <div class="fixed"><button class="ghost" onclick="doTask()" id="btnTask">启动审查任务</button></div>
+            <div class="fixed"><button class="ghost" onclick="location.href='./report.html?id=${qs('id')}'">查看报告</button></div>
+        </div>
+        <div class="small muted" style="margin-top:10px">
+            <b>规则校验不联网</b>，AI 不可用时它照常工作。AI 通道默认走 Mock 桩，零额度消耗。
+        </div>
+        <div id="taskBox" style="margin-top:12px"></div>
+    </div>
+
+    <!-- 要素 -->
+    <div class="card">
+        <h2>
+            <span class="step">1</span>抽取到的要素
+            <span class="muted small" id="elemCount" style="font-weight:400"></span>
+        </h2>
+        <div id="elems"><div class="empty">加载中…</div></div>
+    </div>
+
+    <!-- 规则 -->
+    <div class="card">
+        <h2>
+            <span class="step">2</span>规则结论
+            <span class="muted small" id="ruleCount" style="font-weight:400"></span>
+        </h2>
+        <div class="alert info small" style="margin-bottom:12px">
+            <b>规则结果是三态，不是布尔。</b>
+            <span class="tag ok">通过</span> 表示确定没问题；
+            <span class="tag err">命中</span> 表示确定有问题；
+            <span class="tag unknown">无法判定</span> 表示<b>输入不足</b>——
+            它绝不等于"通过"。如果把抽不到要素当成通过，系统就会在信息不足时告诉你"合同没问题"。
+        </div>
+        <div id="rules"><div class="empty">加载中…</div></div>
+    </div>
+
+    <!-- AI 结论 -->
+    <div class="card">
+        <h2>
+            <span class="step">3</span>AI 风险结论（候选）
+            <span class="muted small" id="aiCount" style="font-weight:400"></span>
+        </h2>
+        <div class="alert info small" style="margin-bottom:12px">
+            <b>所有 AI 结论都是候选，没有"已生效"这个状态。</b>
+            每条引文都必须能在原文定位到；定位不到会标为
+            <span class="tag err">证据无法定位</span> 并<b>不进报告正文</b>。
+        </div>
+        <div id="aiFindings"><div class="empty">加载中…</div></div>
+    </div>
+
+    <!-- 复核历史 -->
+    <div class="card">
+        <h2>
+            <span class="step">4</span>人工复核记录
+            <span class="muted small" style="font-weight:400">（只追加，不可修改、不可删除）</span>
+            <span style="flex:1"></span>
+            <button class="ghost sm no-print" onclick="verifyChain()">校验审计链</button>
+        </h2>
+        <div id="chainBox"></div>
+        <div id="history"><div class="empty">加载中…</div></div>
+    </div>
+
+    <!-- 正文片段 -->
+    <div class="card no-print">
+        <h2><span class="step">5</span>原文（归一化前）</h2>
+        <div id="textBox"><div class="empty">加载中…</div></div>
+    </div>
+</main>
+
+<script src="./assets/api.js"></script>
+<script>
+const cid = qs('id');
+if (!Auth.require()) { /* 跳转中 */ } else if (!cid) {
+    location.href = './contracts.html';
+} else {
+    renderTopbar('list');
+    bootstrap();
+}
+
+async function bootstrap() {
+    await loadHeader();
+    await Promise.all([loadElems(), loadRules(), loadAi(), loadHistory(), loadText()]);
+    await loadTasks();
+}
+
+/* ---------------- 头部 ---------------- */
+async function loadHeader() {
+    const res = await api('GET', '/api/contracts/' + cid);
+    if (!res.ok) {
+        document.getElementById('head').innerHTML = errorHtml(res, '读取合同失败');
+        return;
+    }
+    const c = res.data;
+    document.getElementById('head').innerHTML = `
+        <div class="card">
+            <h2 style="font-size:17px">
+                ${esc(c.title || c.originalFilename)}
+                ${contractStatusTag(c.status)}
+            </h2>
+            <div class="small muted">
+                合同 #${c.id} · 文件 <span class="mono">${esc(c.originalFilename || '')}</span>
+                · ${fmtSize(c.fileSize)} · 上传于 ${esc(fmtTime(c.createdAt))}
+                &nbsp;|&nbsp; <a href="./report.html?id=${c.id}">查看审查报告 →</a>
+            </div>
+        </div>`;
+}
+
+function contractStatusTag(s) {
+    const map = {
+        UPLOADED: ['unknown', '已上传'], PARSING: ['warn', '解析中'],
+        PARSED: ['warn', '已解析'], RULE_CHECKED: ['warn', '已规则校验'],
+        COMPLETED: ['ok', '已完成'], PARSE_FAILED: ['err', '解析失败'],
+        DELETED: ['unknown', '已删除']
+    };
+    const [cls, label] = map[s] || ['unknown', s || '?'];
+    return `<span class="tag ${cls}">${esc(label)}</span>`;
+}
+
+/* ---------------- 要素 ---------------- */
+async function loadElems() {
+    const res = await api('GET', `/api/contracts/${cid}/elements`);
+    const box = document.getElementById('elems');
+    if (!res.ok) { box.innerHTML = errorHtml(res, '读取要素失败'); return; }
+    const list = res.data;
+    document.getElementById('elemCount').textContent = list.length ? `（${list.length} 个）` : '';
+
+    if (!list.length) {
+        box.innerHTML = '<div class="empty">暂无要素。点上方「要素抽取（AI）」或先做「规则校验」（它会用确定性规则抽一轮）。</div>';
+        return;
+    }
+
+    box.innerHTML = `<table>
+        <thead><tr>
+            <th style="width:17%">字段</th><th style="width:22%">值</th>
+            <th style="width:14%">证据</th><th style="width:12%">置信度</th><th>原文区间 / 未采信原因</th>
+        </tr></thead>
+        <tbody>${list.map(e => {
+            const located = e.charStart !== null && e.charStart !== undefined;
+            return `<tr>
+                <td><b>${esc(e.fieldKey)}</b>
+                    <div class="muted small">${esc(e.source || '')}</div></td>
+                <td>${located
+                        ? esc(e.elementValue || '')
+                        : '<span class="muted">（未采信，值不写入）</span>'}
+                    ${e.quote ? `<div class="evidence">${esc(e.quote)}</div>` : ''}</td>
+                <td>${located
+                        ? `<span class="tag ${e.matchLevel === 'EXACT' ? 'ok' : 'warn'}">${esc(e.matchLevel || '')}</span>`
+                        : '<span class="tag err">未定位</span>'}
+                    <div class="muted small">${esc(e.status || '')}</div></td>
+                <td class="num">${e.confidence !== null && e.confidence !== undefined ? e.confidence : ''}</td>
+                <td class="small">${located
+                        ? `<span class="mono muted">[${e.charStart}, ${e.charEnd})</span>`
+                        : `<span class="muted">${esc(e.statusReason || '')}</span>`}</td>
+            </tr>`;
+        }).join('')}</tbody></table>`;
+}
+
+/* ---------------- 规则 ---------------- */
+async function loadRules() {
+    const res = await api('GET', `/api/contracts/${cid}/findings`);
+    const box = document.getElementById('rules');
+    if (!res.ok) { box.innerHTML = errorHtml(res, '读取规则结论失败'); return; }
+    const list = res.data;
+    const hit = list.filter(f => f.result === 'HIT').length;
+    const und = list.filter(f => f.result === 'UNDETERMINED').length;
+    document.getElementById('ruleCount').textContent =
+        list.length ? `（${list.length} 条：命中 ${hit} / 无法判定 ${und}）` : '';
+
+    if (!list.length) {
+        box.innerHTML = '<div class="empty">暂无规则结论。点上方「规则校验」执行（不联网、零成本）。</div>';
+        return;
+    }
+
+    box.innerHTML = `<table>
+        <thead><tr>
+            <th style="width:10%">结论</th><th style="width:20%">规则</th>
+            <th style="width:8%">级别</th><th>依据</th>
+        </tr></thead>
+        <tbody>${list.map(f => `<tr>
+            <td>${ruleTag(f.result)}</td>
+            <td><b>${esc(f.ruleName)}</b>
+                <div class="muted small mono">${esc(f.ruleCode)}</div></td>
+            <td class="muted small">${esc(f.severity || '')}</td>
+            <td>${f.detail ? esc(f.detail) : '<span class="muted">—</span>'}
+                ${f.evidence ? `<div class="evidence">${esc(f.evidence)}</div>` : ''}
+                ${f.charStart != null
+                    ? `<div class="muted small mono">原文位置 [${f.charStart}, ${f.charEnd})</div>` : ''}
+                ${f.errorMessage
+                    ? `<div class="small" style="color:var(--err)">规则执行出错：${esc(f.errorMessage)}</div>` : ''}</td>
+        </tr>`).join('')}</tbody></table>`;
+}
+
+/* ---------------- AI 结论 ---------------- */
+async function loadAi() {
+    const res = await api('GET', `/api/contracts/${cid}/ai-findings`);
+    const box = document.getElementById('aiFindings');
+    if (!res.ok) { box.innerHTML = errorHtml(res, '读取 AI 结论失败'); return; }
+    const list = res.data;
+    const ok = list.filter(f => f.reportable).length;
+    document.getElementById('aiCount').textContent =
+        list.length ? `（${list.length} 条：可进正文 ${ok}，证据不匹配 ${list.length - ok}）` : '';
+
+    if (!list.length) {
+        box.innerHTML = '<div class="empty">暂无 AI 结论。点上方「AI 风险审查」执行。</div>';
+        return;
+    }
+
+    box.innerHTML = list.map(f => `
+        <div style="border:1px solid var(--line);border-radius:6px;padding:12px;margin-bottom:10px">
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                ${aiTag(f.status)}
+                <b>${esc(f.riskType)}</b>
+                <span class="muted small">置信度 ${f.confidence}
+                    ${f.matchLevel ? '· 证据级别 ' + esc(f.matchLevel) : ''}
+                    · 模型 ${esc(f.modelVersion)} · 提示词 ${esc(f.promptVersion)}</span>
+                <span style="flex:1"></span>
+                ${f.reportable
+                    ? `<button class="ghost sm no-print" onclick="review(${f.id},'ACCEPT')">采纳</button>
+                       <button class="ghost sm no-print" onclick="review(${f.id},'REJECT')">驳回</button>
+                       <button class="ghost sm no-print" onclick="review(${f.id},'ESCALATE')">升级</button>`
+                    : '<span class="muted small">（不可进正文，只能转人工处理）</span>'}
+            </div>
+            <div style="margin-top:8px">
+                <div class="muted small">模型给出的引文：</div>
+                <div class="evidence">${esc(f.quote)}</div>
+            </div>
+            <div class="small" style="margin-top:6px">
+                ${f.reportable
+                    ? `<span class="mono muted">原文区间 [${f.charStart}, ${f.charEnd})</span> —— 已核对，引文确实在原文中`
+                    : `<span style="color:var(--err)">${esc(f.statusReason || '证据无法定位')}</span>`}
+            </div>
+        </div>`).join('');
+}
+
+/** 复核：必须带理由与幂等键。 */
+async function review(findingId, action) {
+    const label = { ACCEPT: '采纳', REJECT: '驳回', ESCALATE: '升级主管' }[action];
+    const reason = prompt(`请填写${label}理由（会写入只追加审计记录，不可修改）：`,
+        action === 'ACCEPT' ? '证据充分，确认该风险成立' : '该条款属正常商业安排');
+    if (reason === null) return;
+    if (!reason.trim()) { toast('理由不能为空', 'warn'); return; }
+
+    // 幂等键：同一结论 + 同一动作 + 时间戳，避免双击产生两条审计记录
+    const key = `ui-${cid}-${findingId}-${action}-${Date.now()}`;
+
+    const res = await api('POST', `/api/contracts/${cid}/reviews`,
+        { findingId, action, reason: reason.trim(), idempotencyKey: key });
+
+    if (!res.ok) {
+        document.getElementById('msg').innerHTML = errorHtml(res, label + '失败');
+        return;
+    }
+    toast(`${label}成功（状态 ${res.data.previousStatus} → ${res.data.newStatus}）`, 'ok');
+    document.getElementById('msg').innerHTML = '';
+    await Promise.all([loadAi(), loadHistory()]);
+}
+
+/* ---------------- 复核历史与审计链 ---------------- */
+async function loadHistory() {
+    const res = await api('GET', `/api/contracts/${cid}/reviews`);
+    const box = document.getElementById('history');
+    if (!res.ok) { box.innerHTML = errorHtml(res, '读取复核历史失败'); return; }
+    const list = res.data;
+
+    if (!list.length) {
+        box.innerHTML = '<div class="empty">暂无复核记录。上面点「采纳」或「驳回」会在这里留下不可修改的记录。</div>';
+        return;
+    }
+
+    box.innerHTML = `<table>
+        <thead><tr>
+            <th style="width:12%">动作</th><th style="width:16%">操作人</th>
+            <th style="width:12%">状态变化</th><th>理由</th><th style="width:14%">时间</th>
+        </tr></thead>
+        <tbody>${list.map(r => `<tr>
+            <td>${aiTag(r.newStatus)}</td>
+            <td>${esc(r.operatorName || '')}</td>
+            <td class="small">${esc(r.previousStatus || '—')} → <b>${esc(r.newStatus)}</b></td>
+            <td>${esc(r.reason || '')}
+                <div class="muted small mono">哈希 ${esc((r.recordHash || '').slice(0, 16))}…</div></td>
+            <td class="muted small">${esc(fmtTime(r.createdAt))}</td>
+        </tr>`).join('')}</tbody></table>`;
+}
+
+async function verifyChain() {
+    const res = await api('GET', `/api/contracts/${cid}/reviews/verify`);
+    const box = document.getElementById('chainBox');
+    if (!res.ok) { box.innerHTML = errorHtml(res, '校验失败'); return; }
+    const v = res.data;
+    box.innerHTML = v.intact
+        ? `<div class="alert ok"><b>哈希链完好</b>（已校验 ${v.checked} 条）：${esc(v.explanation)}</div>`
+        : `<div class="alert err"><b>哈希链已断</b>（断在第 ${v.brokenAt} 条）：${esc(v.reason)}</div>`;
+}
+
+/* ---------------- 原文 ---------------- */
+async function loadText() {
+    const res = await api('GET', `/api/contracts/${cid}/text`);
+    const box = document.getElementById('textBox');
+    if (!res.ok) {
+        box.innerHTML = `<div class="empty">${res.status === 404
+            ? '尚未解析出正文。点上方「重新解析」。' : ''}</div>`;
+        return;
+    }
+    const t = res.data;
+    // 原文与归一化文本都展示：证据区间是**原文坐标**，
+    // 用归一化文本去核对会错位，人工就会以为系统定位错了。
+    box.innerHTML = `
+        <div class="small muted" style="margin-bottom:8px">
+            原文字符 ${t.originalLength ?? 0} · 归一化后 ${t.length ?? 0}
+            ${t.noExtractableText ? ' · <span style="color:var(--warn)">疑似扫描件，无可提取文本</span>' : ''}
+            <span class="mono"> · textHash ${esc((t.textHash || '').slice(0, 12))}…</span>
+        </div>
+        <div class="row" style="align-items:flex-start">
+            <div class="grow" style="flex:1 1 380px">
+                <label>原文（证据区间指向的就是它）</label>
+                <div style="max-height:300px;overflow:auto;background:#fafbfc;border:1px solid var(--line);
+                            border-radius:6px;padding:12px;white-space:pre-wrap;font-size:12px"
+                     >${esc(t.originalText || '（无）')}</div>
+            </div>
+            <div class="grow" style="flex:1 1 380px">
+                <label>归一化文本（证据对齐实际搜索的那份）</label>
+                <div style="max-height:300px;overflow:auto;background:#fafbfc;border:1px solid var(--line);
+                            border-radius:6px;padding:12px;white-space:pre-wrap;font-size:12px"
+                     >${esc(t.text || '（无）')}</div>
+            </div>
+        </div>`;
+}
+
+/* ---------------- 动作 ---------------- */
+async function act(btnId, busyText, path, body, after) {
+    const btn = document.getElementById(btnId);
+    const old = btn.textContent;
+    btn.disabled = true; btn.textContent = busyText;
+    document.getElementById('msg').innerHTML = '';
+
+    const res = await api('POST', path, body);
+
+    btn.disabled = false; btn.textContent = old;
+
+    if (!res.ok) {
+        document.getElementById('msg').innerHTML = errorHtml(res, busyText + '失败');
+        return null;
+    }
+    toast(busyText + '完成', 'ok');
+    if (after) await after(res.data);
+    return res.data;
+}
+
+const doParse = () => act('btnParse', '解析中', `/api/contracts/${cid}/parse`, undefined,
+    () => Promise.all([loadHeader(), loadText()]));
+
+const doRule = () => act('btnRule', '规则校验中', `/api/contracts/${cid}/rule-check`, undefined,
+    () => Promise.all([loadHeader(), loadRules(), loadElems()]));
+
+const doExtract = () => act('btnExtract', '抽取中', `/api/contracts/${cid}/extract`, undefined,
+    () => Promise.all([loadElems(), loadHeader()]));
+
+const doAiReview = () => act('btnAi', 'AI 审查中', `/api/contracts/${cid}/ai-review`, undefined,
+    () => Promise.all([loadAi(), loadHeader()]));
+
+/* ---------------- 审查任务 ---------------- */
+async function doTask() {
+    const key = `ui-task-${cid}-${Date.now()}`;
+    const d = await act('btnTask', '启动中', `/api/contracts/${cid}/review-tasks`,
+        { idempotencyKey: key }, loadTasks);
+    if (d && d.status === 'AI_UNAVAILABLE') {
+        toast('AI 不可用，任务已降级（规则结论仍可用）', 'warn');
+    }
+}
+
+async function loadTasks() {
+    const res = await api('GET', `/api/contracts/${cid}/review-tasks`);
+    const box = document.getElementById('taskBox');
+    if (!res.ok || !res.data.length) { box.innerHTML = ''; return; }
+
+    box.innerHTML = `<div class="small muted" style="margin-bottom:6px">审查任务</div>` +
+        res.data.map(t => `
+        <div style="border:1px solid var(--line);border-radius:6px;padding:10px;margin-bottom:8px">
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                ${taskTag(t.status)}
+                <span class="muted small">任务 #${t.taskId}
+                    · AI ${t.aiAvailable ? '可用' : '<b>不可用</b>'}
+                    · 候选 ${t.totalFindings} 条 / 已复核 ${t.reviewedCount} 条</span>
+                <span style="flex:1"></span>
+                ${t.status === 'AI_UNAVAILABLE'
+                    ? `<button class="ghost sm no-print" onclick="proceedTask(${t.taskId})">继续进入人工复核</button>` : ''}
+                ${!t.terminal && t.status === 'AWAITING_REVIEW'
+                    ? `<button class="ghost sm no-print" onclick="refreshTask(${t.taskId})">刷新进度</button>` : ''}
+            </div>
+            ${t.statusReason ? `<div class="small muted" style="margin-top:6px">${esc(t.statusReason)}</div>` : ''}
+        </div>`).join('');
+}
+
+async function proceedTask(id) {
+    const res = await api('POST', `/api/review-tasks/${id}/proceed`);
+    if (!res.ok) { document.getElementById('msg').innerHTML = errorHtml(res, '继续失败'); return; }
+    toast('已进入人工复核', 'ok');
+    loadTasks();
+}
+
+async function refreshTask(id) {
+    const res = await api('POST', `/api/review-tasks/${id}/refresh`);
+    if (!res.ok) { document.getElementById('msg').innerHTML = errorHtml(res, '刷新失败'); return; }
+    toast(`任务状态：${res.data.statusDisplay}`, 'ok');
+    loadTasks();
+}
+</script>
+</body>
+</html>

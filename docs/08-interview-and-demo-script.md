@@ -59,7 +59,7 @@ tags:
 .\run-dev.ps1          # 默认 Mock 桩，零 AI 消耗，不需要网络
 ```
 
-打开 <http://localhost:8080>，用 `staff01` / `Demo@2026` 登录。
+打开 <http://localhost:8080/app/>，用 `staff01` / `Demo@2026` 登录。
 
 **启动时会自动准备 3 份虚构合同**，已跑完解析、规则、AI 审查。列表里直接能看到：
 

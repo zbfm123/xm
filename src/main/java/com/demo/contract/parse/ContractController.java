@@ -20,6 +20,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.InputStream;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -60,17 +61,32 @@ public class ContractController {
         return ResponseEntity.ok(parsingService.parse(id));
     }
 
-    /** 读取归一化后的正文，供人工查看与核对证据位置。 */
+    /**
+     * 读取正文，供人工查看与核对证据位置。
+     *
+     * <p><b>归一化文本与原文一起返回</b>，因为它们是两个不同的东西：
+     * <ul>
+     *   <li><b>归一化文本</b>——证据对齐实际搜索的那份（全角/半角已统一、空白已折叠）</li>
+     *   <li><b>原文</b>——证据区间指向的那份。人工核对"这条引文到底在原文哪里"时看的是它</li>
+     * </ul>
+     *
+     * <p>只返回归一化文本是不够的：区间坐标是<b>原文坐标</b>，
+     * 拿归一化文本去套会错位，人工核对时就会以为系统定位错了。
+     */
     @GetMapping("/{id}/text")
     public ResponseEntity<Map<String, Object>> text(@PathVariable("id") Long id) {
         var contractText = parsingService.requireText(id);
-        return ResponseEntity.ok(Map.of(
-                "contractId", id,
-                "text", contractText.getText(),
-                "textHash", contractText.getTextHash(),
-                "length", contractText.getText().length(),
-                "noExtractableText", contractText.isNoExtractableText()
-        ));
+        String original = contractText.getOriginalText();
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("contractId", id);
+        body.put("text", contractText.getText());
+        body.put("originalText", original);
+        body.put("textHash", contractText.getTextHash());
+        body.put("length", contractText.getText().length());
+        body.put("originalLength", original == null ? 0 : original.length());
+        body.put("noExtractableText", contractText.isNoExtractableText());
+        return ResponseEntity.ok(body);
     }
 
     /** 分页列表，支持关键字与状态筛选。 */

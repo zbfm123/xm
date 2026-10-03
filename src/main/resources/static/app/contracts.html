@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>合同列表 · 合同智能审查平台</title>
+<link rel="stylesheet" href="./assets/app.css">
+</head>
+<body>
+
+<main>
+    <div id="msg"></div>
+
+    <!-- 上传 -->
+    <div class="card">
+        <h2><span class="step">1</span>上传合同</h2>
+        <div class="row">
+            <div class="grow">
+                <label for="file">选择 PDF / DOCX（≤20MB，内容须与扩展名相符）</label>
+                <input type="file" id="file" accept=".pdf,.docx">
+            </div>
+            <div class="grow" style="flex:0 1 260px">
+                <label for="title">标题（可留空，默认取文件名）</label>
+                <input type="text" id="title" placeholder="采购合同">
+            </div>
+            <div class="fixed">
+                <button onclick="doUpload()" id="uploadBtn">上传并解析</button>
+            </div>
+        </div>
+        <div class="small muted" style="margin-top:10px">
+            上传后会立即解析文本。<b>同一文件重复上传返回同一份合同</b>（内容哈希幂等），不会新建记录。<br>
+            解析失败（加密 / 扫描件 / 损坏）会显式报错，<b>不会留下半个要素</b>。
+        </div>
+    </div>
+
+    <!-- 列表 -->
+    <div class="card">
+        <h2>
+            <span class="step">2</span>合同列表
+            <span class="muted small" id="count" style="font-weight:400"></span>
+            <span class="spacer" style="flex:1"></span>
+            <button class="ghost sm no-print" onclick="load()">刷新</button>
+        </h2>
+
+        <div class="row no-print" style="margin-bottom:12px">
+            <div class="grow" style="flex:2 1 240px">
+                <label for="kw">关键字（匹配标题或原文件名）</label>
+                <input type="text" id="kw" placeholder="留空查全部" onkeydown="if(event.key==='Enter')load()">
+            </div>
+            <div class="grow" style="flex:0 1 180px">
+                <label for="st">状态</label>
+                <select id="st">
+                    <option value="">全部</option>
+                    <option value="UPLOADED">已上传</option>
+                    <option value="PARSED">已解析</option>
+                    <option value="RULE_CHECKED">已规则校验</option>
+                    <option value="COMPLETED">已完成</option>
+                    <option value="PARSE_FAILED">解析失败</option>
+                </select>
+            </div>
+            <div class="fixed"><button class="ghost" onclick="load()">查询</button></div>
+        </div>
+
+        <div id="listBox">
+            <div class="empty">加载中…</div>
+        </div>
+
+        <div class="row no-print" style="justify-content:center;margin-top:12px" id="pager"></div>
+    </div>
+</main>
+
+<script src="./assets/api.js"></script>
+<script>
+if (!Auth.require()) { /* 正在跳转 */ } else {
+    renderTopbar('list');
+}
+
+let currentPage = 1;   // 对外 1 基，不要自己减一
+
+async function load() {
+    const box = document.getElementById('listBox');
+    box.innerHTML = '<div class="empty">加载中…</div>';
+
+    // ⚠️ page 从 1 开始。后端契约是对外 1 基；
+    //    传 0 会被夹到第 1 页，但显式写 1 更清楚。
+    const p = new URLSearchParams({ page: String(currentPage), size: '20' });
+    const kw = document.getElementById('kw').value.trim();
+    const st = document.getElementById('st').value;
+    if (kw) p.set('keyword', kw);
+    if (st) p.set('status', st);
+
+    const res = await api('GET', '/api/contracts?' + p.toString());
+    if (!res.ok) {
+        box.innerHTML = errorHtml(res, '加载合同列表失败');
+        return;
+    }
+
+    const d = res.data;
+    document.getElementById('count').textContent = `（共 ${d.total} 份）`;
+
+    if (!d.items.length) {
+        box.innerHTML = '<div class="empty">没有符合条件的合同</div>';
+        document.getElementById('pager').innerHTML = '';
+        return;
+    }
+
+    box.innerHTML = `
+        <table>
+            <thead>
+                <tr>
+                    <th style="width:34%">标题</th>
+                    <th style="width:15%">状态</th>
+                    <th style="width:12%" class="num">大小</th>
+                    <th style="width:21%">上传时间</th>
+                    <th style="width:18%">操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${d.items.map(c => `
+                <tr>
+                    <td>
+                        <a href="./detail.html?id=${c.id}"><b>${esc(c.title || c.originalFilename)}</b></a>
+                        <div class="muted small mono">${esc(c.originalFilename || '')}</div>
+                    </td>
+                    <td>${contractStatusTag(c.status)}</td>
+                    <td class="num muted">${fmtSize(c.fileSize)}</td>
+                    <td class="muted small">${esc(fmtTime(c.createdAt))}</td>
+                    <td class="no-print nowrap">
+                        <button class="ghost sm" onclick="location.href='./detail.html?id=${c.id}'">审查</button>
+                        <button class="danger sm" onclick="removeContract(${c.id}, '${esc((c.title || '').replace(/'/g, ''))}')">删除</button>
+                    </td>
+                </tr>`).join('')}
+            </tbody>
+        </table>`;
+
+    renderPager(d);
+}
+
+function contractStatusTag(s) {
+    const map = {
+        UPLOADED: ['unknown', '已上传'],
+        PARSING: ['warn', '解析中'],
+        PARSED: ['warn', '已解析'],
+        RULE_CHECKED: ['warn', '已规则校验'],
+        COMPLETED: ['ok', '已完成'],
+        PARSE_FAILED: ['err', '解析失败'],
+        DELETED: ['unknown', '已删除']
+    };
+    const [cls, label] = map[s] || ['unknown', s || '?'];
+    return `<span class="tag ${cls}">${esc(label)}</span>`;
+}
+
+function renderPager(d) {
+    const totalPages = d.size > 0 ? Math.ceil(d.total / d.size) : 1;
+    if (totalPages <= 1) { document.getElementById('pager').innerHTML = ''; return; }
+
+    const btn = (page, label, disabled) =>
+        `<button class="ghost sm" ${disabled ? 'disabled' : ''}
+            onclick="gotoPage(${page})">${label}</button>`;
+
+    document.getElementById('pager').innerHTML =
+        btn(d.page - 1, '上一页', d.page <= 1) +
+        `<span class="muted small" style="padding:6px 12px">第 ${d.page} / ${totalPages} 页</span>` +
+        btn(d.page + 1, '下一页', d.page >= totalPages);
+}
+
+function gotoPage(p) {
+    currentPage = Math.max(1, p);
+    load();
+}
+
+async function doUpload() {
+    const fileEl = document.getElementById('file');
+    const btn = document.getElementById('uploadBtn');
+    const msg = document.getElementById('msg');
+
+    if (!fileEl.files.length) { toast('请先选择文件', 'warn'); return; }
+
+    btn.disabled = true;
+    btn.textContent = '上传中…';
+    msg.innerHTML = '';
+
+    const res = await apiUpload('/api/contracts', fileEl.files[0],
+        document.getElementById('title').value.trim());
+
+    btn.disabled = false;
+    btn.textContent = '上传并解析';
+
+    if (!res.ok) {
+        msg.innerHTML = errorHtml(res, '上传失败');
+        return;
+    }
+
+    const d = res.data;
+    msg.innerHTML = `<div class="alert ok">
+        上传成功：合同 #${d.contract.id}
+        ${d.idempotent ? '<b>（命中幂等，这是已存在的同一份合同）</b>' : ''}
+        —— 解析${d.contract.status === 'PARSED' ? '成功' : '状态：' + esc(d.contract.status)}
+    </div>`;
+
+    fileEl.value = '';
+    document.getElementById('title').value = '';
+    load();
+}
+
+async function removeContract(id, title) {
+    if (!confirm(`确定删除合同「${title || id}」？\n\n删除会清理文件、正文、要素、规则结论与 AI 结论。\n复核审计记录会保留（只追加，不可删除）。`)) return;
+
+    const res = await api('DELETE', '/api/contracts/' + id);
+    if (!res.ok) {
+        document.getElementById('msg').innerHTML = errorHtml(res, '删除失败');
+        return;
+    }
+    toast('已删除合同 #' + id, 'ok');
+    load();
+}
+
+if (Auth.token) { load(); }
+</script>
+</body>
+</html>

@@ -129,7 +129,27 @@ if (-not $SkipSecretCheck) {
     $found = @()
     foreach ($rule in $rules) {
         $hits = $diff -split "`n" | Select-String -Pattern $rule.Pattern
-        $real = $hits | Where-Object { $_.Line -notmatch $allow }
+        $real = $hits | Where-Object {
+            $line = $_.Line
+            if ($line -match $allow) { return $false }
+
+            # 再排一类误报：值后面紧跟 ( 或 . 的，是**取值表达式**而不是字面量。
+            #
+            # 实例：前端登录页里的
+            #     password: document.getElementById('password').value
+            # 这是从表单读值，不是硬编码凭据。但规则只看到 "password:"
+            # 后面有一串合法字符就报警了。
+            #
+            # 为什么要专门处理：**扫描器一旦开始误报，人就会习惯性加
+            # -SkipSecretCheck，等真的泄露时也一样跳过。**
+            # 它的价值取决于它有多可信，所以宁可在规则里多写几行。
+            $m = [regex]::Match($line, $rule.Pattern)
+            if ($m.Success) {
+                $after = $line.Substring($m.Index + $m.Length)
+                if ($after.StartsWith('(') -or $after.StartsWith('.')) { return $false }
+            }
+            return $true
+        }
         if ($real) { $found += $rule.Name }
     }
 

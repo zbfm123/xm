@@ -134,6 +134,10 @@ public class AiReviewController {
 
         return ResponseEntity.ok(rows.stream().map(r -> {
             Map<String, Object> m = new LinkedHashMap<>();
+            // ⚠️ id 必须返回：前端要用它提交复核动作（findingId）。
+            // 少了它，界面上"采纳/驳回"按钮点了没有效果——
+            // 而且不报错，只是什么都不会发生，最难排查。
+            m.put("id", r.getId());
             m.put("riskType", r.getRiskType());
             m.put("quote", r.getQuote());
             m.put("charStart", r.getCharStart());
