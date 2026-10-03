@@ -14,12 +14,14 @@
 | 运行时 | Java 21（Spring Boot 3.3.5） |
 | 持久层 | MyBatis-Plus 3.5.7 + MySQL 8 |
 | 建表 | `schema.sql` + `data.sql`（**未用 Flyway**，见技术债） |
-| 缓存 / 幂等 / 限流 | Redis |
+| 缓存 | Redis（AI 结果按文本哈希缓存） |
+| 幂等 | 唯一索引 + 幂等键（上传按文件哈希、任务与复核按幂等键） |
+| 成本上限 | 应用内计数（单合同调用次数 + 日预算），**未做分布式限流** |
 | 文件存储 | 本地目录 `./data/files`（**未用 MinIO**） |
 | 鉴权 | Spring Security + JWT |
 | 文档解析 | Apache PDFBox 3 + POI 5 |
 | AI | `RestClient` 直连 DeepSeek（**未用 Spring AI**） |
-| 前端 | Vue 3 + Vite + Element Plus |
+| 前端 | **单文件 HTML 调试台**（零构建、Spring Boot 直接托管；**未引入 Vue**，见技术债） |
 | 测试 | JUnit 5 + H2 内存库 + 应用内 Mock 桩（**未用 Testcontainers / WireMock**） |
 
 > 每一项"未用"都是主动决策，理由记录在 [`docs/02-architecture.md`](docs/02-architecture.md#关键决策记录) 的 D-01 ~ D-13。
