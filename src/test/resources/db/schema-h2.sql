@@ -59,3 +59,20 @@ CREATE TABLE IF NOT EXISTS contract_text (
     PRIMARY KEY (id),
     CONSTRAINT uk_contract_text_contract UNIQUE (contract_id)
 );
+
+CREATE TABLE IF NOT EXISTS rule_finding (
+    id            BIGINT        NOT NULL AUTO_INCREMENT,
+    tenant_id     BIGINT        NOT NULL,
+    contract_id   BIGINT        NOT NULL,
+    rule_code     VARCHAR(64)   NOT NULL,
+    rule_name     VARCHAR(128)  NOT NULL,
+    severity      VARCHAR(16)   NOT NULL,
+    result        VARCHAR(16)   NOT NULL,
+    evidence      VARCHAR(512)  NULL,
+    char_start    INT           NULL,
+    char_end      INT           NULL,
+    detail        VARCHAR(1024) NULL,
+    error_message VARCHAR(512)  NULL,
+    checked_at    TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id)
+);

@@ -44,11 +44,39 @@ CREATE TABLE IF NOT EXISTS sys_user (
 -- ===================================================================
 -- 以下表按后续任务追加（不要提前建，避免与未实现的功能不一致）：
 --   Day 3 / T-015  contract_element
---   Day 3 / T-012  rule_finding
 --   Day 4 / T-016  ai_finding
 --   Day 4 / T-017  review_task
 --   Day 4 / T-018  review_action（只追加）
 -- ===================================================================
+
+-- -------------------------------------------------------------------
+-- 规则结论（Day 3 / T-011~T-012）
+--
+-- result 三态：HIT / PASS / UNDETERMINED
+--   UNDETERMINED（无法判定）必须能落库并与 PASS 区分开，
+--   否则"信息不足"会在持久化这一层被悄悄折叠成"没问题"。
+--
+-- error_message 非空表示这条规则自身执行失败——
+--   它需要和"合同有问题"（result=HIT）分开看，因此单独一列。
+-- -------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS rule_finding (
+    id            BIGINT       NOT NULL AUTO_INCREMENT,
+    tenant_id     BIGINT       NOT NULL COMMENT '所属租户（不变式 I-01）',
+    contract_id   BIGINT       NOT NULL COMMENT '合同ID',
+    rule_code     VARCHAR(64)  NOT NULL COMMENT '规则编码',
+    rule_name     VARCHAR(128) NOT NULL COMMENT '规则名称',
+    severity      VARCHAR(16)  NOT NULL COMMENT 'HIGH/MEDIUM/LOW',
+    result        VARCHAR(16)  NOT NULL COMMENT 'HIT/PASS/UNDETERMINED',
+    evidence      VARCHAR(512) NULL COMMENT '命中依据（人可读）',
+    char_start    INT          NULL COMMENT '证据在归一化文本中的起点',
+    char_end      INT          NULL COMMENT '证据在归一化文本中的终点（开区间）',
+    detail        VARCHAR(1024) NULL COMMENT '补充说明：缺失字段、计算过程等',
+    error_message VARCHAR(512) NULL COMMENT '规则自身执行失败的信息，非空表示这条规则坏了',
+    checked_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '执行时间',
+    PRIMARY KEY (id),
+    KEY idx_rule_finding_tenant_contract (tenant_id, contract_id),
+    KEY idx_rule_finding_contract_result (contract_id, result)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT '规则结论';
 
 -- -------------------------------------------------------------------
 -- 合同主记录（Day 2 / T-006）

@@ -48,7 +48,9 @@ public class SecurityConfig {
             // 它只做前端壳，所有数据仍走需要认证的接口，因此放行静态文件不降低安全性。
             "/",
             "/index.html",
-            "/favicon.ico"
+            "/favicon.ico",
+            // 示例合同 PDF 生成（仅在 dev/test 环境注册，见 SampleContractController）
+            "/api/debug/**"
     };
 
     @Bean

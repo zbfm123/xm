@@ -38,6 +38,10 @@ class DebugPageTest {
     @Autowired
     private TestRestTemplate rest;
 
+    /** 真实端口，供用 JDK HttpClient 的用例拼 URL。 */
+    @org.springframework.boot.test.web.server.LocalServerPort
+    private int port;
+
     @Test
     @DisplayName("调试台页面可匿名访问，且中文内容与字符集声明正确")
     void debugPageShouldBePublicAndCorrectlyEncoded() {
@@ -52,8 +56,36 @@ class DebugPageTest {
         // 演示口令必须写在页面上，否则使用者不知道输入什么
         assertThat(html).contains("staff01");
         assertThat(html).contains("Demo@2026");
+        // 规则校验区块必须在，且明确区分三态
+        assertThat(html).contains("规则校验");
+        assertThat(html).contains("无法判定");
         // 页面自带 charset 声明，避免浏览器按系统编码猜
         assertThat(html).containsIgnoringCase("charset=UTF-8");
+    }
+
+    @Test
+    @DisplayName("规则校验接口需要认证（未登录不得执行，也不得读取结论）")
+    void ruleCheckEndpointRequiresAuth() throws Exception {
+        // 用 JDK HttpClient 而不是 TestRestTemplate：
+        // 后者默认的流式请求模式在遇到 401 + 未读取请求体时会抛
+        // "cannot retry due to server authentication, in streaming mode"，
+        // 那是客户端行为，不是服务端缺陷。HttpClient 对错误状态码更直白。
+        java.net.http.HttpClient client = java.net.http.HttpClient.newHttpClient();
+        String base = "http://localhost:" + port;
+
+        var post = java.net.http.HttpRequest.newBuilder()
+                .uri(java.net.URI.create(base + "/api/contracts/999999/rule-check"))
+                .POST(java.net.http.HttpRequest.BodyPublishers.noBody())
+                .build();
+        var postRes = client.send(post, java.net.http.HttpResponse.BodyHandlers.ofString());
+        assertThat(postRes.statusCode()).isEqualTo(401);
+
+        var get = java.net.http.HttpRequest.newBuilder()
+                .uri(java.net.URI.create(base + "/api/contracts/999999/findings"))
+                .GET()
+                .build();
+        var getRes = client.send(get, java.net.http.HttpResponse.BodyHandlers.ofString());
+        assertThat(getRes.statusCode()).isEqualTo(401);
     }
 
     @Test

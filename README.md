@@ -181,7 +181,48 @@ curl.exe -s http://localhost:8080/api/auth/me -H "Authorization: Bearer <token>"
 | `GET /api/contracts` | 分页列表。参数：`keyword`（匹配标题或文件名）、`status`、`page`（从 0 开始）、`size`（1~100） |
 | `GET /api/contracts/{id}` | 详情。**不返回存储路径与哈希** |
 | `GET /api/contracts/{id}/file` | 下载原始文件 |
-| `DELETE /api/contracts/{id}` | 删除（软删除 + 级联清理文件、正文、该文本哈希的 AI 缓存）。幂等 |
+| `DELETE /api/contracts/{id}` | 删除（软删除 + 级联清理文件、正文、规则结论、该文本哈希的 AI 缓存）。幂等 |
+| `POST /api/contracts/{id}/rule-check` | 执行规则校验（**不联网**）。返回三类计数：命中 / 通过 / **无法判定** |
+| `GET /api/contracts/{id}/findings` | 查询规则结论。`?onlyHits=true` 只看命中项 |
+
+### 规则引擎：结果三分
+
+这是本项目最重要的设计之一。规则结果不是布尔，而是三态：
+
+| 结果 | 含义 | 用户可见 |
+| --- | --- | --- |
+| `HIT` | 确定存在该问题 | 问题条目 |
+| `PASS` | 确定不存在该问题 | 不显示 |
+| **`UNDETERMINED`** | **输入不足，无法判定** | **待人工确认** |
+
+**为什么不能只有布尔**：如果把"要素抽不到"当成"通过"，系统就会在信息不足时
+输出"合同合规"——**这比报错危险得多**。因此 `UNDETERMINED` 在引擎统计、
+数据库列、API 响应里都是独立的一态，且有专门的测试断言它不会被折叠成 `PASS`。
+
+当前四条规则（全部为确定性判断，**不调用任何模型**）：
+
+| 规则编码 | 判断内容 |
+| --- | --- |
+| `R-AMOUNT-MISMATCH` | 金额大小写是否一致（含**中文大写金额解析**，如"壹拾贰万捌仟元整"= 128000） |
+| `R-DATE-ORDER` | 签署日 ≤ 生效日 ≤ 到期日 |
+| `R-CLAUSE-MISSING` | 争议解决 / 付款 / 违约三类条款是否存在 |
+| `R-PARTY-INCONSISTENT` | 抽取到的甲乙方名称能否在正文中检索到 |
+
+> [!note] 规则的已知局限（面试时应主动说明）
+> - 严重级别（HIGH/MEDIUM/LOW）目前**凭业务常识设定，没有真实法务依据**。
+>   真实系统中级别应当来自业务方的风险清单。
+> - `R-CLAUSE-MISSING` 只判断关键字是否出现，**不判断条款内容是否有效**。
+> - 中文大写金额只支持到"元"；遇到角分返回"无法判定"而不是猜一个值。
+> - 规则集是硬编码的，未做可视化规则编排。
+
+### 调试端点（仅 dev / test 环境）
+
+| 端点 | 说明 |
+| --- | --- |
+| `GET /api/debug/sample-contract.pdf?template=well-formed` | 生成要素齐全的虚构合同，四条规则都会给出确定结论 |
+| `GET /api/debug/sample-contract.pdf?template=sparse` | 生成只有正文没有要素的合同，用于观察"无法判定" |
+
+这两个端点由 `@Profile({"dev","test","default"})` 控制，**不会出现在生产环境**。
 
 上传校验顺序（顺序本身是设计）：**大小 → 扩展名 → 算哈希查幂等 → 魔数校验**。
 超限文件在校验阶段就被拒绝，不会被完整读一遍算哈希。

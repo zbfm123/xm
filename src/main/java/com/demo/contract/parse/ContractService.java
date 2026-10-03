@@ -48,17 +48,20 @@ public class ContractService {
     private final ContractTextMapper contractTextMapper;
     private final ContractFileStorage storage;
     private final AiResultCache aiResultCache;
+    private final com.demo.contract.rule.mapper.RuleFindingMapper ruleFindingMapper;
     private final long maxSizeBytes;
 
     public ContractService(ContractMapper contractMapper,
                            ContractTextMapper contractTextMapper,
                            ContractFileStorage storage,
                            AiResultCache aiResultCache,
+                           com.demo.contract.rule.mapper.RuleFindingMapper ruleFindingMapper,
                            @Value("${app.upload.max-size-bytes}") long maxSizeBytes) {
         this.contractMapper = contractMapper;
         this.contractTextMapper = contractTextMapper;
         this.storage = storage;
         this.aiResultCache = aiResultCache;
+        this.ruleFindingMapper = ruleFindingMapper;
         this.maxSizeBytes = maxSizeBytes;
     }
 
@@ -229,6 +232,8 @@ public class ContractService {
 
         // ---- 第二段：物理清理 ----
         int textRows = contractTextMapper.deleteByContractId(id, tenantId);
+        // 规则结论也可重算，随合同一并清理；复核痕迹（review_action）才需要长期保留
+        int ruleRows = ruleFindingMapper.deleteByContract(id, tenantId);
 
         boolean fileRemoved = false;
         try {

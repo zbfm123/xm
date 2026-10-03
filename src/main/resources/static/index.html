@@ -199,9 +199,36 @@
     </div>
   </div>
 
-  <!-- 5. 日志 -->
+  <!-- 5. 规则校验 -->
   <div class="card">
-    <h2><span class="step">5</span>请求日志</h2>
+    <h2><span class="step">5</span>规则校验（确定性，不联网）
+      <span class="muted" style="font-weight:400;margin-left:auto">
+        三种结果：命中 / 通过 / <b style="color:var(--warn)">无法判定</b>
+      </span>
+    </h2>
+    <div class="row" style="margin-bottom:12px">
+      <div class="fixed"><button onclick="doRuleCheck()">执行规则校验</button></div>
+      <div class="fixed"><button class="ghost" onclick="loadFindings()">只看结论</button></div>
+      <div class="fixed"><button class="ghost" onclick="loadFindings(true)">只看命中</button></div>
+    </div>
+    <div id="ruleSummary" class="muted" style="margin-bottom:10px">尚未执行。请先在“合同详情”里选中一份已解析的合同。</div>
+    <table>
+      <thead><tr>
+        <th style="width:190px">规则</th><th style="width:78px">级别</th>
+        <th style="width:110px">结果</th><th>依据 / 补充说明</th>
+      </tr></thead>
+      <tbody id="findingsBody"><tr><td colspan="4" class="muted">暂无结论</td></tr></tbody>
+    </table>
+    <p class="muted" style="margin:10px 0 0">
+      注意“无法判定”不是“通过”。例如合同里没写金额时，金额规则会返回
+      <span class="kbd">UNDETERMINED</span> 并说明缺哪个字段——
+      如果它返回“通过”，系统就会在信息不足时告诉你“合同没问题”。
+    </p>
+  </div>
+
+  <!-- 6. 日志 -->
+  <div class="card">
+    <h2><span class="step">6</span>请求日志</h2>
     <div class="log" id="log"></div>
   </div>
 
@@ -393,6 +420,75 @@ async function doDelete() {
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, m =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+}
+
+// ---------- 5. 规则校验 ----------
+async function doRuleCheck() {
+  if (!currentId) { log('请先在合同详情里选中一份合同', 'warn'); return; }
+
+  const r = await api('POST', `/api/contracts/${currentId}/rule-check`);
+  if (!r.ok) {
+    log(`　　执行失败：${r.data.code || ''} ${r.data.message || ''}`, 'err');
+    if (r.data.code === 'PARSE_FAILED') {
+      log('　　合同尚未解析成功。规则校验拒绝在无正文时执行——' +
+          '否则会把"没解析"说成"合同缺条款"', 'warn');
+    }
+    return;
+  }
+
+  const d = r.data;
+  const parts = [
+    `共 ${d.total} 条`,
+    `命中 ${d.hits}`,
+    `通过 ${d.passes}`,
+    `<b style="color:var(--warn)">无法判定 ${d.undetermined}</b>`
+  ];
+  if (d.ruleErrors > 0) parts.push(`<b style="color:var(--err)">规则出错 ${d.ruleErrors}</b>`);
+  $('ruleSummary').innerHTML = parts.join(' · ') + `　—　${esc(d.message)}`;
+
+  log(`规则校验完成：共${d.total} 命中${d.hits} 通过${d.passes} 无法判定${d.undetermined}`, 'ok');
+  if (d.undetermined > 0) {
+    log(`　　有 ${d.undetermined} 条无法判定（信息不足），需人工确认。这不是"通过"`, 'warn');
+  }
+  if (d.ruleErrors > 0) {
+    log(`　　${d.ruleErrors} 条规则自身执行失败，已标记，请查看明细`, 'err');
+  }
+
+  const extracted = d.extractedElements || {};
+  const got = Object.entries(extracted).filter(([, v]) => v !== '未抽到');
+  log(`　　要素抽取：${got.length} 个成功 → ${got.map(([k, v]) => k + '=' + v).join(', ') || '（无）'}`);
+
+  loadFindings();
+  selectContract(currentId);
+}
+
+async function loadFindings(onlyHits) {
+  if (!currentId) { log('请先选中一份合同', 'warn'); return; }
+  const r = await api('GET', `/api/contracts/${currentId}/findings?onlyHits=${onlyHits ? 'true' : 'false'}`);
+  if (!r.ok) return;
+
+  const list = r.data;
+  if (!list.length) {
+    $('findingsBody').innerHTML = '<tr><td colspan="4" class="muted">暂无结论，先执行规则校验</td></tr>';
+    return;
+  }
+
+  const color = { HIT: 'var(--err)', PASS: 'var(--ok)', UNDETERMINED: 'var(--warn)' };
+  $('findingsBody').innerHTML = list.map(f => {
+    const reason = [
+      f.evidence ? esc(f.evidence) : '',
+      f.detail ? `<span class="muted">${esc(f.detail)}</span>` : '',
+      f.errorMessage ? `<span style="color:var(--err)">规则出错：${esc(f.errorMessage)}</span>` : '',
+      f.charStart != null ? `<span class="muted">原文位置 [${f.charStart}, ${f.charEnd})</span>` : ''
+    ].filter(Boolean).join('<br>');
+    return `<tr>
+      <td><span class="kbd">${esc(f.ruleCode)}</span><br><span class="muted">${esc(f.ruleName)}</span></td>
+      <td>${esc(f.severity)}</td>
+      <td style="color:${color[f.result] || 'inherit'};font-weight:600">${esc(f.result)}</td>
+      <td>${reason || '<span class="muted">—</span>'}</td>
+    </tr>`;
+  }).join('');
+  log(`结论已加载：${list.length} 条`, 'ok');
 }
 
 checkHealth();
