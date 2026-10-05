@@ -11,8 +11,8 @@
 | --- | --- |
 | 项目 | 合同智能审查平台（秋招用） |
 | 位置 | `D:\xmdeepseek\contract-review-platform` |
-| 代码 | `dc673ce`，已推送到 <https://github.com/zbfm123/xm>，工作区干净 |
-| 测试 | **280 / 280 通过**（`mvn test`） |
+| 代码 | 已推送到 <https://github.com/zbfm123/xm>（`main` 分支），工作区干净<br>查最新提交：`git log --oneline -1` |
+| 测试 | **280 / 280 通过**（跑一次 `mvn test` 确认，别信文档里的旧数字） |
 | 进度 | **T-001 ~ T-020 全部完成** |
 | 启动 | `.\run-dev.ps1` → <http://localhost:8080/app/> → `staff01` / `Demo@2026` |
 | AI 通道 | 默认 **Mock 桩**，零额度消耗；真实调用需 `AI_ENABLED=true` + `DEEPSEEK_API_KEY` |
@@ -152,7 +152,7 @@ Flyway 迁移框架、Vue 组件化前端。
 | --- | --- |
 | **进度与全部踩坑** | [PROGRESS.md](PROGRESS.md) |
 | 为什么这么设计（D-01 ~ D-59 决策记录） | [02-architecture.md](02-architecture.md) |
-| 每个任务的取舍与面试可讲点 | [tasks/](tasks/) 下 8 张任务卡 |
+| 每个任务的取舍与面试可讲点 | [tasks/](tasks/) 下 12 张任务卡（T-001 ~ T-020） |
 | 面试问答与演示脚本 | [08-interview-and-demo-script.md](08-interview-and-demo-script.md) |
 | 验收标准与完成情况 | [04-tasks-and-acceptance.md](04-tasks-and-acceptance.md) |
 | 各模块的设计约束 | [modules/](modules/) |
