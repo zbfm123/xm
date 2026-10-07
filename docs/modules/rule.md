@@ -52,11 +52,14 @@ status: 已完成
 | 编号 | 规则 | 输入 | 输出 | 关联需求 |
 | --- | --- | --- | --- | --- |
 | M-R01 | 金额大小写不一致 | 大写/小写金额要素 | `R-AMOUNT-MISMATCH` | F-04 |
-| M-R02 | 金额计算不一致 | 单价、数量、总额 | `R-AMOUNT-CALC` | F-04 |
-| M-R03 | 日期逻辑矛盾 | 签署日、生效日、到期日 | `R-DATE-ORDER` | F-04 |
-| M-R04 | 主体名称不一致 | 甲乙方名称与正文出现 | `R-PARTY-INCONSISTENT` | F-04 |
-| M-R05 | 必备条款缺失 | 归一化文本 | `R-CLAUSE-MISSING` | F-04 |
-| M-R06 | 要素缺失导致无法判定 | `UNKNOWN` 要素 | `UNDETERMINED`（**不是"通过"**） | A-04 |
+| M-R02 | 日期逻辑矛盾 | 签署日、生效日、到期日 | `R-DATE-ORDER` | F-04 |
+| M-R03 | 主体名称不一致 | 甲乙方名称与正文出现 | `R-PARTY-INCONSISTENT` | F-04 |
+| M-R04 | 必备条款缺失 | 归一化文本 | `R-CLAUSE-MISSING` | F-04 |
+| M-R05 | 要素缺失导致无法判定 | `UNKNOWN` 要素 | `UNDETERMINED`（**不是"通过"**） | A-04 |
+
+> ⚠️ 本表曾列出 **5 条**，其中“M-R02 金额计算不一致 / `R-AMOUNT-CALC`” **代码里从来没有**（全仓 grep 零命中）。金额校验实际只做一件事：**大写与小写是否一致**（大写金额的解析在 `ChineseAmountParser`）。写在文档里的一条“并不存在的规则”会让人以为它漏了。
+>
+> 实现共 **4 条规则**（`src/main/java/com/demo/contract/rule/rules/`）：`AmountConsistencyRule` / `DateOrderRule` / `RequiredClauseRule` / `PartyConsistencyRule`。
 
 ## 3. 核心流程
 
@@ -90,13 +93,12 @@ status: 已完成
 | 情况 | 判定方式 | 系统行为 | 是否转人工 |
 | --- | --- | --- | --- |
 | 要素为 `UNKNOWN` | 字段状态检查 | 相关规则返回 `UNDETERMINED` | 是 |
-| 文本过短/异常 | 长度阈值 | 报 `TEXT_TOO_SHORT`，不做规则判定 | 是 |
-| 规则自身抛异常 | 引擎捕获 | 该条规则标记 `RULE_ERROR`，**其余规则继续执行** | 是 |
+| 规则自身抛异常 | 引擎捕获 | 该条规则返回 **`UNDETERMINED` + `errorMessage`**（用第一个字段表示“无法判定”、用第二个补上原因），**其余规则继续执行** | 是 |
 | 数据库不可用 | 持久化异常 | 整个校验失败（不产出部分结论） | 是 |
 
 > [!note] 为什么单条规则出错不影响其他规则
 > 规则之间相互独立，一条规则的实现缺陷不应该让整份合同的校验失效。
-> 但 `RULE_ERROR` **必须显式出现在结果里**，不能静默跳过——否则用户看到的是"少了一条结论"而非"这条规则坏了"。
+> 但 **`UNDETERMINED` + `errorMessage`** **必须显式出现在结果里**，不能静默跳过——否则用户看到的是"少了一条结论"而非"这条规则坏了"。
 
 ## 4. 数据与接口
 
@@ -115,8 +117,9 @@ status: 已完成
 
 | 名称 | 调用方 | 输入 | 成功输出 | 失败输出 | 说明 |
 | --- | --- | --- | --- | --- | --- |
-| `POST /api/contracts/{id}/rule-check` | 前端、workflow | contractId | `RuleFinding[]` | `TEXT_TOO_SHORT` | 幂等：同输入可重复执行且结果一致 |
-| `GET /api/contracts/{id}/findings?type=RULE` | 前端 | contractId | 规则结论列表 | 404 | 强制 tenantId |
+| `POST /api/contracts/{id}/rule-check` | 前端、workflow | contractId | `RuleFinding[]` | `CONTRACT_NOT_FOUND`（合同不存在）/
+`PARSE_FAILED`（**尚未解析成功**，不返回空正文）| 幂等：同输入可重复执行且结果一致 |
+| `GET /api/contracts/{id}/rule-findings?onlyHits=` | 前端 | contractId、`onlyHits`（默认 false；传 true 只看命中项）| 规则结论列表 | `CONTRACT_NOT_FOUND` 404 | 强制 tenantId |
 | 领域事件 `RuleCheckCompleted` | rule 发布 | contractId, hitCount, undeterminedCount | — | — | workflow 推进状态 |
 
 ## 5. 状态、错误码与排查
@@ -127,8 +130,6 @@ status: 已完成
 | `R-DATE-ORDER` | 签署日晚于生效日等 | 高风险问题条目 | 记录两日期 | 日期规则 | — |
 | `R-CLAUSE-MISSING` | 必备条款未检出 | 中风险问题条目 | 记录缺失条款名 | 条款规则 | — |
 | `UNDETERMINED` | 要素缺失 | 黄色"待人工确认" | **不判为通过** | 对应规则的输入校验 | 是（人工补要素后重跑） |
-| `RULE_ERROR` | 规则实现抛异常 | "某条规则执行失败" | 标记该条，其余继续 | 规则实现 | 是 |
-| `TEXT_TOO_SHORT` | 文本低于阈值 | "文本过短，无法校验" | 不产出结论 | 文本长度校验 | 换文件 |
 
 ## 6. 测试与验收
 
@@ -143,7 +144,7 @@ status: 已完成
 | 日期缺失 | 单元 | 到期日 `UNKNOWN` | 执行 | `UNDETERMINED` |
 | 必备条款缺失 | 单元 | 文本无"争议解决" | 执行 | `HIT` `R-CLAUSE-MISSING` |
 | 必备条款存在 | 单元 | 文本含该条款 | 执行 | `PASS` |
-| 单规则异常不影响其他 | 单元 | 注入必抛异常的假规则 | 执行 | 该条 `RULE_ERROR`，其他规则正常产出 |
+| 单规则异常不影响其他 | 单元 | 注入必抛异常的假规则 | 执行 | 该条 **`UNDETERMINED` + `errorMessage`**，其他规则正常产出 |
 | **确定性回归** | 单元 | 同一输入 | 连续执行 2 次 | 两次结果**完全相等**（I-03） |
 | 零网络调用 | 单元 | 任意输入 | 执行 | HTTP 客户端调用次数 = 0 |
 
@@ -165,8 +166,11 @@ status: 已完成
 
 - 主要代码位置：`src/main/java/com/demo/contract/rule`（`engine/` + `rules/`）
 - 测试位置：`src/test/java/com/demo/contract/rule`
-- 数据库迁移：`V5__rule_finding.sql`
-- 相关配置：`app.rule.timeout`、`app.rule.requiredClauses`
+- 数据库表：`rule_finding`（建表在 `src/main/resources/db/schema.sql`）
+  > ⚠️ 本行原写作 `V5__rule_finding.sql`—— **本项目明确不用 Flyway**（决策 D-08），
+  > 没有 `db/migration/` 目录。各模块文档里都曾出现过这类不存在的迁移文件名。
+- 相关配置：**没有**。规则集目前硬编码在代码里，`application.yml` 里没有任何 `app.rule.*` 项。
+  > ⚠️ 本行原写着两个不存在的配置项。
 - 关联任务：[T-011 / T-012](../04-tasks-and-acceptance.md#待开始)
 
 ## 8. 长期决策与待办
@@ -177,7 +181,7 @@ status: 已完成
 | --- | --- | --- | --- |
 | 2026-10-03 | 规则结果三分：`HIT` / `PASS` / `UNDETERMINED` | 把"不知道"从"没问题"里分离出来，避免假合规 | 报告语义、workflow 复核 |
 | 2026-10-03 | 时间等外部输入一律注入，不用 `now()` | 用了 `now()` 就没有可复现性 | 全部规则 |
-| 2026-10-03 | 单条规则异常标记 `RULE_ERROR` 而非中断全局 | 一条规则缺陷不该让整份合同校验失效；但必须显式可见 | 引擎 |
+| 2026-10-03 | 单条规则异常标记 **`UNDETERMINED` + `errorMessage`** 而非中断全局 | 一条规则缺陷不该让整份合同校验失效；但必须显式可见 | 引擎 |
 | 2026-10-03 | 规则集硬编码，不做可视化编排 | 本期没有真实用户驱动该需求（Lean Mode：不为假想需求建框架） | 已知限制 |
 
 ### 面试可讲点
@@ -186,7 +190,7 @@ status: 已完成
 - **`UNDETERMINED` 和 `PASS` 为什么要分开？** → 这是这个项目里我最在意的一条。如果要素抽不到就把规则判成"通过"，系统会在信息不足时输出"合规"，这比报错危险得多。**"不知道"必须是一种显式结果。**
 - **怎么保证可复现？** → 规则是纯函数，外部输入（时间、配置）全部注入，测试里固定；并且有"连续执行两次结果完全相等"的回归测试锁住它。
 - **规则扩展性怎么样？** → 每条规则实现统一接口，引擎按注册表遍历，新增规则不改引擎。但我**没做可视化规则编排**——本期没有真实用户来驱动这个需求，提前建框架就是过度工程。
-- **一条规则写错了会怎样？** → 它自己被标记 `RULE_ERROR`，其他规则继续执行，用户能看到"某条规则执行失败"。**不静默跳过**，因为静默跳过等于向用户隐藏了结论缺失。
+- **一条规则写错了会怎样？** → 它自己被标记 **`UNDETERMINED` + `errorMessage`**，其他规则继续执行，用户能看到"某条规则执行失败"。**不静默跳过**，因为静默跳过等于向用户隐藏了结论缺失。
 
 ### 待办
 
