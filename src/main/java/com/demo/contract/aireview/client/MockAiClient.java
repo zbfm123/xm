@@ -66,6 +66,22 @@ public class MockAiClient implements AiClient {
 
     private final ObjectMapper objectMapper;
 
+    /**
+     * 累计被真实调用（complete）的次数。
+     *
+     * <p>存在的理由：验证 AI 结果缓存<b>真的省下了调用</b>。
+     * "缓存写进去了"和"第二次不再调 AI"是两件事——
+     * 前者只能说明 put 被执行，后者才说明缓存产生了业务价值（省钱）。
+     * 没有这个计数器，就只能断言缓存里有值，而那证明不了省钱。
+     */
+    private final java.util.concurrent.atomic.AtomicInteger callCount =
+            new java.util.concurrent.atomic.AtomicInteger();
+
+    /** 本实例被调用 complete 的次数。 */
+    public int callCount() {
+        return callCount.get();
+    }
+
     public MockAiClient(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
         log.info("AI 通道使用 Mock 桩（不消耗额度）。"
@@ -74,6 +90,7 @@ public class MockAiClient implements AiClient {
 
     @Override
     public String complete(String systemPrompt, String userContent) {
+        callCount.incrementAndGet();
         // 桩是"永远成功"的。异常分支由测试直接构造 AiCallException 来覆盖，
         // 不需要让桩本身变得可失败——那会让正常路径的测试也必须处理失败。
         try {

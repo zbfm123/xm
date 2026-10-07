@@ -70,6 +70,14 @@ public class AiReviewService {
     private final ContractParsingService parsingService;
     private final AiFindingMapper findingMapper;
     private final com.demo.contract.aireview.client.AiCostGuard costGuard;
+    /**
+     * AI 结果缓存。
+     *
+     * <p>⚠️ 它在 2026-10-07 之前**只被用来清理、从未被读写**——
+     * 于是"缓存"这个说法一直是假的：每次审查都真的调 AI。
+     * 见 {@code review()} 里的说明。
+     */
+    private final AiResultCache aiResultCache;
     private final String modelVersion;
 
     public AiReviewService(AiClient aiClient,
@@ -81,6 +89,7 @@ public class AiReviewService {
                            ContractParsingService parsingService,
                            AiFindingMapper findingMapper,
                            com.demo.contract.aireview.client.AiCostGuard costGuard,
+                           AiResultCache aiResultCache,
                            @Value("${app.workflow.low-confidence-threshold}") double lowConfidenceThreshold,
                            @Value("${app.ai.model}") String modelVersion) {
         this.aiClient = aiClient;
@@ -92,6 +101,7 @@ public class AiReviewService {
         this.parsingService = parsingService;
         this.findingMapper = findingMapper;
         this.costGuard = costGuard;
+        this.aiResultCache = aiResultCache;
         this.lowConfidenceThreshold = lowConfidenceThreshold;
         this.modelVersion = modelVersion;
     }
@@ -115,8 +125,33 @@ public class AiReviewService {
 
         costGuard.beginContract();
 
-        String rawResponse = aiClient.complete(
-                prompts.riskReviewSystemPrompt(), text.getText());
+        // ==============================================================
+        // ⚠️ 先查缓存，命中就**不调 AI**（这是缓存存在的唯一理由：省钱）
+        // ==============================================================
+        //
+        // 【补这段的原因】在它之前，AiResultCache 是一个**只有删除、没有读写**的组件：
+        //   · put() 全项目无人调用 -> 缓存从来没被写入过
+        //   · get() 全项目无人调用 -> 因此永远不可能命中
+        //   · 唯一的生产调用是 ContractService.delete() 里的 evictByTextHash
+        // 结果是：配置写着 cache-enabled: true、缓存类写得挺完整、
+        // 删合同时还会"清理缓存"，**但每次审查依然真的调 AI**——
+        // 一个看起来在工作、实际一次都没生效的缓存。
+        //
+        // 这类"管线接好了但没水流过"的问题，从单元测试里看不出来
+        // （缓存的 put/get 都测过，就是没人调用它们）。
+        String rawResponse = aiResultCache.get(text.getTextHash());
+        if (rawResponse != null) {
+            log.info("AI 审查命中缓存，跳过调用（省一次调用）: contractId={} textHash={}",
+                    contractId, text.getTextHash());
+        } else {
+            rawResponse = aiClient.complete(
+                    prompts.riskReviewSystemPrompt(), text.getText());
+            // ⚠️ 缓存的是**模型原始响应**，不是解析后的结论。
+            //    理由：结论里带着原文对齐结果，而对齐依赖解析管线；
+            //    缓存原始响应意味着"换个对齐实现也不用清缓存"，
+            //    而且与 AiResultCache 的键设计（textHash+提示词版本+模型）语义一致。
+            aiResultCache.put(text.getTextHash(), rawResponse);
+        }
 
         JsonNode root = parseJson(rawResponse);
         JsonNode findings = root.path("findings");
