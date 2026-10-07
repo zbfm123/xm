@@ -43,7 +43,7 @@ tags:
 
 | 信息类型 | 存放位置 |
 | --- | --- |
-| 代码事实 | 代码、测试、`docs/specs/` |
+| 代码事实 | 代码、测试、`docs/modules/` 与 `docs/tasks/`（**本仓库没有 `docs/modules 与 docs/tasks（本仓库没有 docs/specs）/`**） |
 | 稳定架构与设计决策 | 本知识库的模块笔记 / 架构笔记 |
 | 长期待办 | [04-任务与验收清单](04-tasks-and-acceptance.md) |
 | 临时日志、PID、终端输出、调试截图 | 当前任务卡，任务关闭前清理 |
