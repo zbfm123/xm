@@ -17,6 +17,11 @@ import java.util.Set;
  * 仍然会命中旧提示词产生的结论，而且<b>看起来完全正常</b>——
  * 这类"缓存没失效但也没报错"的问题最难排查。
  *
+ * <p><b>⚠️ 缓存故障必须降级（补于 2026-10-07）</b>：
+ * {@code get} 失败当作"未命中"继续调 AI，{@code put} 失败只记日志。
+ * 在此之前这两个方法没有 try/catch —— Redis 一挂，抽取与审查会直接失败。
+ * <b>缓存只是省钱手段，不是正确性的一环；为了写缓存把审查搞挂是负优化。</b>
+ *
  * <p>与 {@code TokenBlacklist} 相反，这里的条目<b>刻意不带 TTL</b>：
  * 审查结论是长期资产，不像令牌那样会自然过期。
  * 代价是必须能定向清理——这正是 T-008 删除合同要做的事，
@@ -92,14 +97,34 @@ public class AiResultCache {
         if (!enabled || textHash == null || op == null) {
             return;
         }
-        redis.opsForValue().set(key(op, textHash), json);
+        try {
+            redis.opsForValue().set(key(op, textHash), json);
+        } catch (RuntimeException e) {
+            // ⚠️ 缓存写失败只记日志，绝不冒泡。
+            //
+            // Redis 不可用时不能让 AI 审查失败：缓存只是省钱手段，
+            // 不是正确性的一环。为了"写缓存"把"审查"搞挂是典型的负优化。
+            // 这与项目 2 里"缓存挂了不能影响挂号"是同一条纪律。
+            log.warn("写 AI 缓存失败，忽略（本次结果仍正常返回，只是下次不会命中）: op={} textHash={} 原因={}",
+                    op, textHash, e.toString());
+        }
     }
 
     public String get(Operation op, String textHash) {
         if (!enabled || textHash == null || op == null) {
             return null;
         }
-        return redis.opsForValue().get(key(op, textHash));
+        try {
+            return redis.opsForValue().get(key(op, textHash));
+        } catch (RuntimeException e) {
+            // ⚠️ 缓存读失败 = 当作"未命中"，继续去调 AI。
+            //
+            // 这是**降级**而不是容错：Redis 挂了，功能照常，
+            // 代价只是重新开始真的调模型（成本上升，但结果正确）。
+            log.warn("读 AI 缓存失败，按未命中处理（将真实调用 AI）: op={} textHash={} 原因={}",
+                    op, textHash, e.toString());
+            return null;
+        }
     }
 
     public boolean isEnabled() {
