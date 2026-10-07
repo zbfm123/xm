@@ -113,6 +113,17 @@ flowchart LR
 4. **ai-review**：按条款切分文本 → 组装提示词（含固定输出 schema）→ 调用大模型 → 校验 JSON schema → **证据对齐**（quote 必须能在原文指定区间命中）→ 产出候选 `ai_finding`；对齐失败 → `EVIDENCE_MISMATCH`，转人工。
 5. **workflow**：把上述结果汇总为一个审查任务的状态；`PENDING` 结论等待人工复核；低置信度强制升级到主管角色。
 6. **report**：只读取已生效结论（规则结论 + 已采信的 AI 结论）生成报告，报告里三类信息分栏，不混淆来源。
+> ⚠️ **2026-10-07 补记（一处"文档说了、代码没做"的修正）**：
+> 上面第 2 步与第 4 步都写了"按 `textHash` 查缓存"，
+> 但在此之前，`ElementExtractionService.extract()` 与 `AiReviewService.review()`
+> **都没有读缓存**——`AiResultCache` 的 `put`/`get` 全项目无人调用，
+> 只有 `ContractService.delete()` 会去清它。也就是说：
+> **配置写着 `cache-enabled: true`、缓存类写得很完整、删合同时还会"清理缓存"，
+> 但每次抽取和审查依然真的调 AI。**
+>
+> 已修复（两个方法都接上读写），并补了 `AiResultCacheIntegrationTest` 4 个用例，
+> 断言的正是"第二次不再调用 AI"——因为**"缓存里写进去了"和"省下了调用"是两件事**，
+> 只有后者才证明缓存产生了业务价值。
 
 ### 关键不变式
 
@@ -178,7 +189,7 @@ flowchart LR
 | D-02 | 待填 | AI 输出一律"候选"，不直接生效 | AI 结论直接入库为结论 | 概率性输出的错误代价由业务承担，必须留人工否决权 | ai-review、workflow、report |
 | D-03 | 待填 | 证据对齐作为独立校验层 | 信任模型返回的引用 | 模型会幻觉出不存在于原文的条款，必须机器校验 | ai-review 核心算法 + 测试 |
 | D-04 | 待填 | 规则引擎与大模型完全解耦 | 用 AI 判断一切 | 确定性判断不该付概率代价，且规则可复现可测试 | rule、ai-review 互不依赖 |
-| D-05 | 待填 | AI 结果按 `textHash` 缓存 | 每次都调 | 成本与稳定性 | ai-review、Redis |
+| D-05 | 2026-10-07 | AI 结果按 `ai:result:<operation>:<textHash>:<promptVersion>:<model>` 缓存 | 每次都调 | 成本与稳定性。⚠️ **键里必须有 operation**：`extract` 与 `review` 响应形状不同，共用键会互相覆盖（已踩过，9 个测试失败）| ai-review、extract、Redis |
 | D-06 | 待填 | schema 异常显式失败，不用默认值兜底 | 用 try/catch 吞掉填默认值 | 吞掉根因会产出看似正常的脏数据（对应工作流 Lean Mode） | ai-review、workflow |
 | D-07 | 待填 | AI 接入用 `RestClient` 直连 DeepSeek，不用 Spring AI | Spring AI / LangChain4j | 只有 DeepSeek 一个供应商；自写客户端约 100 行，无版本不确定性；供应商耦合集中在一处 | `DeepSeekClient`；换模型只改这一个类 |
 | D-08 | 待填 | 建表用 `schema.sql` + `data.sql`，不用 Flyway | Flyway / Liquibase | **没学过 Flyway**，5 天内不值得学；演示项目没有多环境迁移需求 | 改表靠手工 ALTER；**这是本次已知技术债，面试时要主动说** |
@@ -186,7 +197,7 @@ flowchart LR
 | D-10 | 待填 | 外部依赖测试用应用内 Mock 开关，不用 WireMock | WireMock / Testcontainers | 一个开关同时服务测试与演示降级，省一个框架的学习成本 | 桩数据手工维护 |
 | D-11 | 待填 | 前端可不用 TypeScript | TS / 纯 JS | 5 天内 TS 的类型对齐成本高于收益 | 类型靠接口文档约束，**面试时如实说明** |
 | D-12 | 待填 | AI 调用设单合同次数上限 + 成本计数器 + 默认走 Mock | 不设限 | **接口额度仅 15 元，真正的风险是调试时的循环调用烧光额度**；开发测试默认 `AI_ENABLED=false` 可做到零消耗 | ai-review、extract；面试可讲"成本也是一种正确性约束" |
-| D-13 | 待填 | 删除合同必须定向清 `textHash` 缓存 | 只删数据库行 | 否则重新上传同一份合同会命中旧缓存，返回**与本次无关的过期结论** | parse、ai-review；对应 [DE-01](#删除与缓存失效de-01) |
+| D-13 | 2026-10-07 | 删除合同必须定向清 `textHash` 缓存（键含 operation，通配符必须写成 `ai:result:*:<textHash>:*`）| 只删数据库行 | 否则重新上传同一份合同会命中旧缓存，返回**与本次无关的过期结论**。⚠️ 通配符少一段会**静默失效**（不报错、返回 0）| parse、ai-review；对应 [DE-01](#删除与缓存失效de-01) |
 | D-14 | 2026-10-03 | **登出端点免认证**，以换取幂等性 | 要求已认证 | 若要求已认证，用已失效令牌再登出会被过滤器拦成 401；但此时用户诉求（令牌失效）**已经达成**。登出不返回受保护数据，令牌本身就是凭证，安全性未降低 | auth；由 T-004 的失败测试暴露，是**改代码而非改测试** |
 | D-15 | 2026-10-03 | 登录失败计数与锁定**落库**，不只放 Redis | 只放 Redis | 清一次缓存就等于给攻击者重置了爆破机会。**锁定状态必须能扛住 Redis 重启** | auth；代价是多一次数据库写入 |
 | D-16 | 2026-10-03 | 登出黑名单 TTL = 令牌剩余有效期 | 永久或固定 TTL | 令牌自然过期后再拉黑只是白占内存；这样黑名单大小有上界（= 一个有效期窗口内的登出量） | auth、Redis |
