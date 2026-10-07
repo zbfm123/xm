@@ -15,7 +15,7 @@ tags:
 - 使用边界：**单机单体应用**（原计划用 Docker Compose，已变更 C-11：本机未装 Docker，直连本机 MySQL / Redis 服务）；不设计公网多机房。
 - 关键约束：
   - **时间约束（最硬）：国庆结束前交付，约 5 天。** 因此模块化单体 + 最小技术栈，不引入学习成本高的框架（见 D-01、D-07）。
-  - 成本约束：AI 调用有预算上限，必须缓存 + 限流 + 段落上限。
+- 成本约束：AI 调用有预算上限，必须缓存 + 限流 + **单合同调用次数上限**（并非“段落上限”，实现里是次数）。
   - 合规约束：合同正文属商业秘密；API Key 只走环境变量；日志脱敏。
   - 人力约束：单人开发，且此前未接触过微服务与 Flyway——**不用没学过的东西**。
 - 关联需求：[01-需求与范围确认](01-requirements-and-scope.md)
@@ -24,7 +24,7 @@ tags:
 
 ~~~mermaid
 flowchart TB
-    subgraph Client["浏览器 (Vue 3 + TS)"]
+    subgraph Client["浏览器（零构建原生 HTML/CSS/JS）"]
         UI[合同列表 / 详情 / 复核台 / 看板]
     end
 
@@ -151,7 +151,7 @@ flowchart LR
 | AI 接入 | **`RestClient` 直连 DeepSeek**（OpenAI 兼容接口） | 只有 DeepSeek Key；不引入 Spring AI 的版本不确定性，代码量约 100 行 | 供应商耦合在 `DeepSeekClient` 一个类里，换模型改这一处 |
 | AI 测试替身 | **应用内 `AiClient` Mock 开关**（`app.ai.enabled=false` + 桩 JSON） | 无需额外框架；同一开关同时服务于测试和演示降级 | 桩数据要自己写；不如 WireMock 灵活 |
 | 集成测试 | `@SpringBootTest` + **H2 内存库** | 不依赖 Docker，跑得快 | H2 与 MySQL 方言有差异，涉及 MySQL 特有用法的 SQL 要单独验证 |
-| 前端 | Vue 3 + Vite + Element Plus（**可不用 TypeScript**） | 上手快，演示好看；赶时间可省类型标注 | 不做类型对齐，靠接口文档约束 |
+| 前端 | **零构建多页前端**（原生 HTML/CSS/JS，Spring Boot 直接托管）| 零依赖、零构建步骤，5 天内不值得引入工程化前端 | 没有组件化、没有类型检查（原计划 Vue 3 + Vite，已改）|
 | 部署 | **直接使用本机 Windows 服务**（MySQL80 + Redis） | 本机已装好且运行中；**没有安装 Docker**，装它反而要额外折腾 WSL | 换机器需手工准备两个服务；`docker-compose.yml` 列为可选交付物 |
 
 > [!important] 环境事实决定的一次方案变更（2026-10-03 实测）

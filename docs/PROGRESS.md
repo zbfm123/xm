@@ -25,9 +25,9 @@ tags:
 
 | 任务 | 交付物 | 状态 |
 | --- | --- | --- |
-| 知识库骨架 | `docs/` 23 个 md 文件，0 坏链 | ✅ |
+| 知识库骨架 | `docs/` **31** 个 md 文件，0 坏链 | ✅ |
 | 需求与范围 | [01](01-requirements-and-scope.md) 含 CRUD 定位说明 | ✅ |
-| 架构与决策 | [02](02-architecture.md) 含 D-01~D-23、不变式 I-01~I-06 | ✅ |
+| 架构与决策 | [02](02-architecture.md) 含 D-01~D-59、不变式 I-01~I-06 | ✅ |
 | 任务拆分 | [04](04-tasks-and-acceptance.md) 22 个 P0 任务 / 5 天里程碑 | ✅ |
 | 面试脚本 | [08](08-interview-and-demo-script.md) 简历 + 演示 + 问答 | ✅ |
 | T-001 骨架 | `mvn test` 通过（Java 21.0.12.1 + Spring Boot 3.3.5） | ✅ |

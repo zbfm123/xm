@@ -34,27 +34,27 @@ tags:
 
 | 类别 | 交付物 | 位置/形式 | 验收状态 | 备注 |
 | --- | --- | --- | --- | --- |
-| 源码 | 后端 + 前端代码 | Git 仓库 | 待交付 | 不含 `.env` 与 `application-local.yml` |
-| 环境 | `docker-compose.yml` | 仓库根目录 | 待交付 | **仅含 MySQL + Redis**（文件存本地磁盘，无 MinIO） |
+| 源码 | 后端 + 前端代码 | Git 仓库（`git@github.com:zbfm123/xm.git`）| ✅ **已交付** | 不含 `.env` 与 `application-local.yml` |
+| 环境 | ~~`docker-compose.yml`~~ → `run-dev.ps1` | 仓库根目录 | ✅ **已交付** | ⚠️ **原计划 docker compose，已变更 C-11**：本机未装 Docker，改为直连本机 Windows 服务（MySQL80 + Redis）|
 | 文档 | `docs/` 知识库 | 本目录 | 已交付 | 含需求、架构、任务、面试脚本 |
-| 文档 | `README.md` 启动与演示步骤 | 仓库根目录 | 待交付 | 对应 A-10，干净机器 5 分钟可复现 |
-| 演示 | 演示脚本（含预期现象与失败演示） | [08](08-interview-and-demo-script.md) | 待交付 | 含"故意让它失败"的两段 |
-| 作品集 | 简历项目段落 + 面试问答 | [08](08-interview-and-demo-script.md) | 待交付 | 本项目最终目的 |
+| 文档 | `README.md` 启动与演示步骤 | 仓库根目录 | ✅ **已交付** | 对应 A-10，干净机器 5 分钟可复现 |
+| 演示 | 演示脚本（含预期现象与失败演示）| [08](08-interview-and-demo-script.md) | ✅ **已交付** | 含“故意让它失败”的两段 |
+| 作品集 | 简历项目段落 + 面试问答 | [08](08-interview-and-demo-script.md) | ✅ **已交付** | 本项目最终目的 |
 
 ## 最终验收
 
 | 编号 | 验收项 | 验收方法 | 实际结果 | 状态 | 验收人 |
 | --- | --- | --- | --- | --- | --- |
-| A-01 | 跨租户数据不可见 | 两个租户账号交叉查询 | 待填 | 待验收 | 我 |
-| A-02 | 解析失败显式化 | 上传加密 PDF | 待填 | 待验收 | 我 |
-| A-03 | 要素可追溯原文 | 点击字段查看原文片段 | 待填 | 待验收 | 我 |
-| A-04 | 规则结论可复现 | 同一合同执行两次比对 | 待填 | 待验收 | 我 |
-| A-05 | AI 结论带证据 | 查看 AI 条目字段完整性 | 待填 | 待验收 | 我 |
-| A-06 | 证据不可定位降级 | 注入错误区间（桩） | 待填 | 待验收 | 我 |
-| A-07 | schema 异常不落脏数据 | 注入非法 JSON（桩） | 待填 | 待验收 | 我 |
-| A-08 | AI 不可用可降级 | 清空 API Key 后重启 | 待填 | 待验收 | 我 |
-| A-09 | 复核留痕不可覆盖 | 采信 + 驳回各一条后查库 | 待填 | 待验收 | 我 |
-| A-10 | 一键起可演示 | 干净机器 `docker compose up` | 待填 | 待验收 | 我 |
+| A-01 | 跨租户数据不可见 | 两个租户账号交叉查询 | `ContractApiTest` + `TenantScopeArchitectureTest`（架构测试扫描所有 Mapper） | ✅ **已通过** | 我 |
+| A-02 | 解析失败显式化 | 上传加密 PDF | `ContractParsingServiceTest`：返回 `PDF_ENCRYPTED`，不返回空正文 | ✅ **已通过** | 我 |
+| A-03 | 要素可追溯原文 | 点击字段查看原文片段 | `EvidenceAlignerTest` 三级对齐 + `FrontendPagesTest`（详情页含三类结果） | ✅ **已通过** | 我 |
+| A-04 | 规则结论可复现 | 同一合同执行两次比对 | `RuleEngineTest` / `RulesTest`：时间显式注入，两次结果一致 | ✅ **已通过** | 我 |
+| A-05 | AI 结论带证据 | 查看 AI 条目字段完整性 | `AiReviewIntegrationTest`：每条带 quote + 坐标 + confidence | ✅ **已通过** | 我 |
+| A-06 | 证据不可定位降级 | 注入错误区间（桩） | `AiDegradationTest`：标 `EVIDENCE_MISMATCH` / `EVIDENCE_AMBIGUOUS`，转人工 | ✅ **已通过** | 我 |
+| A-07 | schema 异常不落脏数据 | 注入非法 JSON（桩） | `AiDegradationTest`：`SCHEMA_INVALID` 整体丢弃，不部分采纳 | ✅ **已通过** | 我 |
+| A-08 | AI 不可用可降级 | **设 `AI_CLIENT_MODE=unavailable` 后重启**（⚠️ 不是“清空 API Key”—— 那样会回退到 Mock） | `AiDegradationTest` / `AiExceptionMappingTest`：503 + `degradable`，转 `AI_UNAVAILABLE` | ✅ **已通过** | 我 |
+| A-09 | 复核留痕不可覆盖 | 采信 + 驳回各一条后查库 | `ReviewActionIntegrationTest` 13 例 + `AppendOnlyAuditContractTest` 3 例 + `scripts/verify-append-only.ps1`（真 MySQL 8 项） | ✅ **已通过** | 我 |
+| A-10 | 一键起可演示 | **干净机器 `run-dev.ps1`**（⚠️ 不是 `docker compose up`，见 C-11） | 四个页面闭环可走通，`FrontendPagesTest` 8 例守着 | ✅ **已通过** | 我 |
 
 ## 交付前检查
 

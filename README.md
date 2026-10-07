@@ -24,7 +24,7 @@
 | 前端 | **零构建多页前端**（原生 HTML/CSS/JS，Spring Boot 直接托管；**未引入 Vue**，见技术债） |
 | 测试 | JUnit 5 + H2 内存库 + 应用内 Mock 桩（**未用 Testcontainers / WireMock**） |
 
-> 每一项"未用"都是主动决策，理由记录在 [`docs/02-architecture.md`](docs/02-architecture.md#关键决策记录) 的 D-01 ~ D-13。
+> 每一项"未用"都是主动决策，理由记录在 [`docs/02-architecture.md`](docs/02-architecture.md#关键决策记录) 的 D-01 ~ D-59。
 
 ---
 
@@ -63,7 +63,7 @@
 | Maven | 3.9+ | 3.9.9 ✅ |
 | MySQL | 8.0+ | Windows 服务 `MySQL80`，监听 3306 ✅ |
 | Redis | 5+ | Windows 服务 `Redis`，监听 6379 ✅（本机为 3.2.100，见下方注意事项） |
-| Node.js | 20+ | v24.18.0 ✅（仅前端需要） |
+| ~~Node.js~~ | 不需要 | 前端是**零构建**的原生 HTML/CSS/JS，由 Spring Boot 直接托管（仓库里没有 `package.json`）|
 
 **本项目不需要 Docker。**
 

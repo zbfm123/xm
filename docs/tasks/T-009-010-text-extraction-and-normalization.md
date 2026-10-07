@@ -81,7 +81,7 @@ status: 已验收
 
 ### 1. 失败测试（RED）
 
-先写 `TextNormalizerTest`（24 个用例）与 `ContractTextExtractorTest`（11 个用例），再实现。
+先写 `TextNormalizerTest`（**25** 个用例，实测）与 `ContractTextExtractorTest`（11 个用例），再实现。
 其中最重要的断言不是"文本被洗净了"，而是**"归一化片段能回查回原文"**与**"映射单调"**。
 
 ### 2. 最小实现（GREEN）

@@ -24,7 +24,7 @@ powershell -ExecutionPolicy Bypass -File .\push.ps1 -Message "feat(auth): add JW
 | 提交邮箱 | `chen2686195184@126.com`（与 GitHub 账号绑定邮箱一致，提交能正确归属） |
 | 默认分支 | `main` |
 
-脚本会依次做五件事：检查远端 → 暂存改动 → **扫描敏感信息** → 提交 → 推送。
+脚本会依次做**六**件事：检查远端 → **BOM 双向校验** → 暂存改动 → 扫描敏感信息 → 提交 → 推送。
 
 ### 为什么要用脚本而不是直接敲 git
 
