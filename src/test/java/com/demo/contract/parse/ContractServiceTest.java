@@ -335,12 +335,12 @@ class ContractServiceTest extends AuthenticatedTestBase {
         // 模拟这份合同已有 AI 审查缓存
         String textHash = "abc123def456";
         setTextHash(id, textHash);
-        RedisTestConfig.put("ai:result:" + textHash + ":v1:deepseek-chat", "{\"cached\":true}");
-        assertThat(aiResultCache.get(textHash)).isNotNull();
+        RedisTestConfig.put("ai:result:review:" + textHash + ":v1:deepseek-chat", "{\"cached\":true}");
+        assertThat(aiResultCache.get(AiResultCache.Operation.REVIEW, textHash)).isNotNull();
 
         contractService.delete(id);
 
-        assertThat(aiResultCache.get(textHash))
+        assertThat(aiResultCache.get(AiResultCache.Operation.REVIEW, textHash))
                 .withFailMessage("删除合同后 AI 缓存未清理：重新上传同一份合同会命中过期结论")
                 .isNull();
     }

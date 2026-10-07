@@ -13,6 +13,7 @@ import com.demo.contract.extract.evidence.EvidenceAligner;
 import com.demo.contract.extract.evidence.MatchLevel;
 import com.demo.contract.extract.mapper.ContractElementMapper;
 import com.demo.contract.parse.ContractException;
+import com.demo.contract.aireview.AiResultCache;
 import com.demo.contract.parse.ContractParsingService;
 import com.demo.contract.parse.ParseErrorCode;
 import com.demo.contract.parse.domain.Contract;
@@ -81,6 +82,12 @@ public class ElementExtractionService {
     private final ContractElementMapper elementMapper;
     private final com.demo.contract.aireview.client.AiCostGuard costGuard;
 
+    /**
+     * AI 结果缓存。与 {@code AiReviewService} 共用同一份缓存与同一套键约定
+     * （{@code textHash + 提示词版本 + 模型}），因此抽取与审查各自命中自己的条目。
+     */
+    private final com.demo.contract.aireview.AiResultCache aiResultCache;
+
     public ElementExtractionService(AiClient aiClient,
                                     PromptTemplates prompts,
                                     FindingSchemaValidator validator,
@@ -89,7 +96,8 @@ public class ElementExtractionService {
                                     ContractMapper contractMapper,
                                     ContractParsingService parsingService,
                                     ContractElementMapper elementMapper,
-                                    com.demo.contract.aireview.client.AiCostGuard costGuard) {
+                                    com.demo.contract.aireview.client.AiCostGuard costGuard,
+                           com.demo.contract.aireview.AiResultCache aiResultCache) {
         this.aiClient = aiClient;
         this.prompts = prompts;
         this.validator = validator;
@@ -99,6 +107,7 @@ public class ElementExtractionService {
         this.parsingService = parsingService;
         this.elementMapper = elementMapper;
         this.costGuard = costGuard;
+        this.aiResultCache = aiResultCache;
     }
 
     /**
@@ -121,8 +130,26 @@ public class ElementExtractionService {
         // 每份合同开始时重置单合同调用计数
         costGuard.beginContract();
 
-        String rawResponse = aiClient.complete(
-                prompts.elementExtractionSystemPrompt(), text.getText());
+        // ==============================================================
+        // ⚠️ 先查缓存，命中就不调 AI（与 AiReviewService.review() 同一套做法）
+        // ==============================================================
+        //
+        // 【为什么这里也要补】{@code docs/02-architecture.md} 的模块图里写的是
+        // "extract：按 textHash 查缓存，未命中则按章节切块送大模型"——
+        // 但补之前，实现里**同样没有读缓存**，所以那句话对 extract 也是不成立的。
+        // 换句话说：文档承诺了缓存，代码从来没有，只是没人去核对这句话。
+        //
+        // 缓存的是**模型原始响应**，不是解析后的要素行——
+        // 理由与 review() 一致：解析与对齐依赖管线实现，缓存原始响应更稳。
+        String rawResponse = aiResultCache.get(AiResultCache.Operation.EXTRACT, text.getTextHash());
+        if (rawResponse != null) {
+            log.info("要素抽取命中缓存，跳过调用（省一次调用）: contractId={} textHash={}",
+                    contractId, text.getTextHash());
+        } else {
+            rawResponse = aiClient.complete(
+                    prompts.elementExtractionSystemPrompt(), text.getText());
+            aiResultCache.put(AiResultCache.Operation.EXTRACT, text.getTextHash(), rawResponse);
+        }
 
         JsonNode root = parseJson(rawResponse);
         JsonNode elements = root.path("elements");

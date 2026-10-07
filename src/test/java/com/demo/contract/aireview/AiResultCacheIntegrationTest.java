@@ -74,6 +74,7 @@ class AiResultCacheIntegrationTest extends AuthenticatedTestBase {
     @Autowired private ContractService contractService;
     @Autowired private ContractParsingService parsingService;
     @Autowired private AiReviewService aiReviewService;
+    @Autowired private com.demo.contract.extract.ElementExtractionService extractionService;
     @Autowired private AiResultCache aiResultCache;
     @Autowired private TestPdfFactory pdfFactory;
     @Autowired private ObjectMapper objectMapper;
@@ -166,12 +167,12 @@ class AiResultCacheIntegrationTest extends AuthenticatedTestBase {
         String textHash = contract.getTextHash();
         assertThat(textHash).as("合同必须有 textHash，缓存键就靠它").isNotNull();
 
-        assertThat(aiResultCache.get(textHash))
+        assertThat(aiResultCache.get(AiResultCache.Operation.REVIEW, textHash))
                 .as("审查之前不该有缓存").isNull();
 
         aiReviewService.review(contractId);
 
-        String cached = aiResultCache.get(textHash);
+        String cached = aiResultCache.get(AiResultCache.Operation.REVIEW, textHash);
         assertThat(cached)
                 .as("审查之后缓存里必须有模型原始响应")
                 .isNotNull();
@@ -190,13 +191,36 @@ class AiResultCacheIntegrationTest extends AuthenticatedTestBase {
 
         String textHash = contractService.get(contractId).getTextHash();
         aiReviewService.review(contractId);
-        assertThat(aiResultCache.get(textHash)).isNotNull();
+        assertThat(aiResultCache.get(AiResultCache.Operation.REVIEW, textHash)).isNotNull();
 
         contractService.delete(contractId);
 
-        assertThat(aiResultCache.get(textHash))
+        assertThat(aiResultCache.get(AiResultCache.Operation.REVIEW, textHash))
                 .as("删除合同必须清掉它的 AI 缓存，否则下次上传同一份合同会命中过期结论"
                         + "（这正是文档 D-13 记录的那个坑）")
                 .isNull();
+    }
+@Test
+    @DisplayName("⚠️ 要素抽取同样命中缓存：extract 两次，AI 也只被调用一次")
+    void secondExtractionShouldHitCacheAndSkipAiCall() throws Exception {
+        // 【为什么这条也要测】docs/02 的模块图写着
+        // "extract：按 textHash 查缓存，未命中则送大模型"——
+        // 但补之前实现里同样没有读缓存，**文档承诺了、代码从来没有**。
+        // 这类"文档说了但没人核对"的句子，只有写成断言才会有人发现。
+        Long contractId = uploadAndParse();
+        MockAiClient client = mockClient();
+
+        int before = client.callCount();
+
+        extractionService.extract(contractId);
+        int afterFirst = client.callCount();
+        assertThat(afterFirst - before)
+                .as("第一次抽取必须真的调 AI")
+                .isEqualTo(1);
+
+        extractionService.extract(contractId);
+        assertThat(client.callCount())
+                .as("第二次抽取不能再调 AI —— 否则文档里那句【按 textHash 查缓存】依然是假的")
+                .isEqualTo(afterFirst);
     }
 }

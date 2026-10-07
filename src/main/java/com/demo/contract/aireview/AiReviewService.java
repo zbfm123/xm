@@ -139,7 +139,7 @@ public class AiReviewService {
         //
         // 这类"管线接好了但没水流过"的问题，从单元测试里看不出来
         // （缓存的 put/get 都测过，就是没人调用它们）。
-        String rawResponse = aiResultCache.get(text.getTextHash());
+        String rawResponse = aiResultCache.get(AiResultCache.Operation.REVIEW, text.getTextHash());
         if (rawResponse != null) {
             log.info("AI 审查命中缓存，跳过调用（省一次调用）: contractId={} textHash={}",
                     contractId, text.getTextHash());
@@ -150,7 +150,7 @@ public class AiReviewService {
             //    理由：结论里带着原文对齐结果，而对齐依赖解析管线；
             //    缓存原始响应意味着"换个对齐实现也不用清缓存"，
             //    而且与 AiResultCache 的键设计（textHash+提示词版本+模型）语义一致。
-            aiResultCache.put(text.getTextHash(), rawResponse);
+            aiResultCache.put(AiResultCache.Operation.REVIEW, text.getTextHash(), rawResponse);
         }
 
         JsonNode root = parseJson(rawResponse);

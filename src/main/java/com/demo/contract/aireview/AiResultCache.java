@@ -43,22 +43,63 @@ public class AiResultCache {
         this.model = model;
     }
 
-    private String key(String textHash) {
-        return PREFIX + textHash + ":" + promptVersion + ":" + model;
+    /**
+     * 操作维度：抽取与审查是<b>两种不同形状的模型响应</b>，必须分键存放。
+     *
+     * <h2>⚠️ 为什么必须有这一层（踩过的坑）</h2>
+     *
+     * 2026-10-07 给 {@code ElementExtractionService.extract()} 接上缓存时，
+     * 它和 {@code AiReviewService.review()} 用的是同一个键（只按 textHash）。
+     * 结果是<b>两者互相覆盖</b>：
+     *
+     * <pre>
+     *   extract()  -> 缓存里放的是 {"elements":[...]}
+     *   review()   -> 读到的却是抽取结果，解析 {"findings"} 时找不到字段
+     *              -> 抛 SCHEMA_INVALID -> 整条链路降级为 AI_UNAVAILABLE
+     * </pre>
+     *
+     * <p>表现很有迷惑性：{@code AiReviewIntegrationTest} 与
+     * {@code ReviewTaskIntegrationTest} 共 9 个用例失败，报的是
+     * "响应缺少 findings 字段"——看起来像模型或提示词的问题，
+     * 实际是**两个功能抢同一个缓存键**。
+     *
+     * <p>所以键里除了文本、提示词版本、模型，还必须带上<b>操作</b>。
+     * 用枚举而不是字符串常量，是为了让"新增一种 AI 操作"时必须显式选择命名空间，
+     * 而不是顺手复用别人的键。
+     */
+    public enum Operation {
+        /** 要素抽取。 */
+        EXTRACT("extract"),
+        /** 风险审查。 */
+        REVIEW("review");
+
+        private final String tag;
+
+        Operation(String tag) {
+            this.tag = tag;
+        }
+
+        String tag() {
+            return tag;
+        }
     }
 
-    public void put(String textHash, String json) {
-        if (!enabled || textHash == null) {
+    private String key(Operation op, String textHash) {
+        return PREFIX + op.tag() + ":" + textHash + ":" + promptVersion + ":" + model;
+    }
+
+    public void put(Operation op, String textHash, String json) {
+        if (!enabled || textHash == null || op == null) {
             return;
         }
-        redis.opsForValue().set(key(textHash), json);
+        redis.opsForValue().set(key(op, textHash), json);
     }
 
-    public String get(String textHash) {
-        if (!enabled || textHash == null) {
+    public String get(Operation op, String textHash) {
+        if (!enabled || textHash == null || op == null) {
             return null;
         }
-        return redis.opsForValue().get(key(textHash));
+        return redis.opsForValue().get(key(op, textHash));
     }
 
     public boolean isEnabled() {
@@ -79,8 +120,17 @@ public class AiResultCache {
         if (textHash == null) {
             return 0;
         }
-        // 用通配符覆盖所有版本组合
-        Set<String> keys = redis.keys(PREFIX + textHash + ":*");
+        // 用通配符覆盖**所有操作 + 所有提示词/模型版本**组合。
+        //
+        // ⚠️ 中间那个 `*` 是必须的：键的格式是
+        //      ai:result:<operation>:<textHash>:<promptVersion>:<model>
+        //    所以 <textHash> 前面还有一段 operation。
+        //    少了这个通配符，删除就变成"永远匹配不到"——
+        //    而它的表现是**静默失效**（不报错、返回 0），
+        //    直到有人重新上传同一份合同命中过期结论才发现。
+        //    这个坑 2026-10-07 真的踩了一次（加 operation 命名空间时忘了同步这里），
+        //    由 ContractServiceTest.deleteShouldEvictAiCacheForItsTextHash 抓到。
+        Set<String> keys = redis.keys(PREFIX + "*:" + textHash + ":*");
         if (keys == null || keys.isEmpty()) {
             return 0;
         }
