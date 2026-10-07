@@ -56,7 +56,9 @@ tags:
 2. docs/00-project-index.md  —— 项目目标、当前阶段、模块导航
 3. docs/01-requirements-and-scope.md —— 本期做什么、不做什么、怎么验收
 4. docs/02-architecture.md   —— 模块边界、依赖方向、关键不变式、技术选型
-5. docs/04-tasks-and-acceptance.md   —— 任务看板与里程碑，找到"待开始"里最靠前的一项
+5. docs/04-tasks-and-acceptance.md   —— 任务看板与里程碑。
+   ⚠️ **全部 T-000 ~ T-022 已完成并验收**，看板现在是**记录**而不是队列——
+   不要再去“找待开始里最靠前的一项”（这句指引已失效）。新工作请先写进 docs/01 与 docs/04。
 
 确认内容必须包含：
 - 用一句话说出这个项目的核心工程价值（不要复述技术栈）
