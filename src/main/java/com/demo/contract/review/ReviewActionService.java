@@ -4,6 +4,7 @@ import com.demo.contract.aireview.domain.AiFindingRow;
 import com.demo.contract.aireview.mapper.AiFindingMapper;
 import com.demo.contract.auth.TenantContext;
 import com.demo.contract.auth.domain.CurrentUser;
+import com.demo.contract.auth.domain.Role;
 import com.demo.contract.parse.ContractException;
 import com.demo.contract.parse.ParseErrorCode;
 import com.demo.contract.parse.domain.Contract;
@@ -92,6 +93,7 @@ public class ReviewActionService {
         if (findingId != null) {
             AiFindingRow finding = findOwnedFinding(findingId, contractId, tenantId);
             previousStatus = finding.getStatus();
+            assertMayReview(operator, finding, action);
         } else if (action != ReviewActionType.CONFIRM_NO_RISK) {
             // 除了"确认无风险"这类合同级动作，其他都必须指向具体结论。
             // 允许一个不指向任何结论的 ACCEPT 会让报告出现无法追溯的"已采纳"。
@@ -208,6 +210,64 @@ public class ReviewActionService {
                 .findFirst()
                 .orElseThrow(() -> new ContractException(ParseErrorCode.CONTRACT_NOT_FOUND,
                         "AI 结论不存在或不属于该合同: " + findingId));
+    }
+
+    /** 已被裁决过的终态 —— 再次裁决必须拒绝，而不是把结论改来改去。 */
+    private static final java.util.Set<String> TERMINAL_FINDING_STATUSES =
+            java.util.Set.of("ACCEPTED", "REJECTED", "CONFIRMED_NO_RISK");
+
+    /** 低置信度状态：这类结论的终审权只在法务主管手里。 */
+    private static final String LOW_CONFIDENCE = "LOW_CONFIDENCE";
+
+    /**
+     * 复核权限与状态的闸门。两条规则都来自 {@code docs/modules/workflow.md}，
+     * 此前**只写在文档里、代码里没有**（2026-10-07 补）。
+     *
+     * <h2>规则一：低置信度条目的终审只有法务主管能做</h2>
+     *
+     * 为什么是这两条动作：{@code ACCEPT}（采纳，进报告正文）与 {@code REJECT}
+     * （驳回，判定不构成风险）都是**终局性的**——它们决定了这条 AI 结论算不算数。
+     * 而 {@code ESCALATE}（升级给主管）与 {@code NEED_INFO}（信息不足退回）
+     * 本身就是把问题往上交，不存在"越权下结论"，所以不挡。
+     *
+     * <p>这一条之所以重要：低置信度恰恰是 AI 最容易判错的地方，
+     * 也是本项目"AI 只出候选、人决定是否采信"这个立场的落点。
+     * 如果谁都能终审，那个立场就只是句话。
+     *
+     * <h2>规则二：只读演示账号一律拒绝</h2>
+     *
+     * {@code DEMO_READONLY} 存在的意义就是"能看不能改"。让它能写审计记录，
+     * 等于把演示账号变成了数据污染的入口——而审计表是**只追加**的，
+     * 写错了删不掉。
+     *
+     * <p>⚠️ 顺序很关键：先挡只读账号，再看低置信度权限。
+     * 反过来会出现"只读账号因为不是低置信度而放行"的漏洞。
+     */
+    private void assertMayReview(CurrentUser operator, AiFindingRow finding,
+                                 ReviewActionType action) {
+        Role role = operator.getRole();
+
+        // ---- 规则二：只读账号一律拒绝（必须先于低置信度判断）----
+        if (role == Role.DEMO_READONLY) {
+            throw new ReviewException(ReviewErrorCode.INSUFFICIENT_ROLE,
+                    "演示只读账号不能执行复核动作：审计记录只追加，写错无法删除");
+        }
+
+        // ---- 重复复核：已经是终态就不许再裁决 ----
+        String status = finding.getStatus();
+        if (TERMINAL_FINDING_STATUSES.contains(status)) {
+            throw new ReviewException(ReviewErrorCode.ALREADY_REVIEWED,
+                    "该条已复核（当前状态 " + status + "），请刷新后查看最新状态");
+        }
+
+        // ---- 规则一：低置信度条目的终审只有法务主管能做 ----
+        boolean isFinalDecision = action == ReviewActionType.ACCEPT
+                || action == ReviewActionType.REJECT;
+        if (isFinalDecision && LOW_CONFIDENCE.equals(status) && role != Role.LEGAL_LEAD) {
+            throw new ReviewException(ReviewErrorCode.INSUFFICIENT_ROLE,
+                    "低置信度结论（" + status + "）只能由法务主管终审，当前角色 " + role
+                            + " 无权采纳或驳回；可改用 ESCALATE 升级给主管");
+        }
     }
 
     /** 动作 → 结论的新状态。 */

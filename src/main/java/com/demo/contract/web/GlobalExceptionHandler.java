@@ -3,6 +3,7 @@ package com.demo.contract.web;
 import com.demo.contract.auth.AuthErrorCode;
 import com.demo.contract.auth.AuthException;
 import com.demo.contract.parse.ContractException;
+import com.demo.contract.review.ReviewException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -80,9 +81,38 @@ public class GlobalExceptionHandler {
                 .body(base(e.getCode().name(), e.getMessage(), request));
     }
 
+    /**
+     * 人工复核被拒（权限不足 / 重复复核）。
+     *
+     * <p>状态码的选择依据同样是「调用方该做什么」：
+     * <ul>
+     *   <li>{@code INSUFFICIENT_ROLE} → <b>403</b>：换一个有权限的账号来做，
+     *       改参数没有用</li>
+     *   <li>{@code ALREADY_REVIEWED} → <b>409</b>：这事已经定了，刷新看最新状态。
+     *       与 403 分开是因为前者是"你不该做"、后者是"已经有人做过了"</li>
+     * </ul>
+     *
+     * <p>⚠️ 不显式处理的话这两个码会落到兜底分支变成通用的 500，
+     * 前端就只能提示"服务器错误"——把"你没权限"说成"系统坏了"。
+     */
+    @ExceptionHandler(ReviewException.class)
+    public ResponseEntity<Map<String, Object>> handleReview(ReviewException e,
+                                                            HttpServletRequest request) {
+        HttpStatus status = switch (e.getCode()) {
+            case INSUFFICIENT_ROLE -> HttpStatus.FORBIDDEN;                 // 403
+            case ALREADY_REVIEWED -> HttpStatus.CONFLICT;                   // 409
+        };
+
+        // 这两条都是正常的业务拒绝，不是故障 —— 记 INFO，不要打堆栈刷日志
+        log.info("复核请求被拒绝: {} {} -> {} {}",
+                request.getRequestURI(), e.getCode(), status.value(), e.getMessage());
+
+        return ResponseEntity.status(status)
+                .body(base(e.getCode().name(), e.getMessage(), request));
+    }
+
     /** 取不到租户上下文属于实现缺陷，明确记录为错误而不是普通 400。 */
-    @ExceptionHandler(IllegalStateException.class)
-    public ResponseEntity<Map<String, Object>> handleIllegalState(IllegalStateException e,
+    @ExceptionHandler(IllegalStateException.class)    public ResponseEntity<Map<String, Object>> handleIllegalState(IllegalStateException e,
                                                                   HttpServletRequest request) {
         log.error("状态异常（疑似缺少登录上下文）: {} {}", request.getRequestURI(), e.getMessage(), e);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)

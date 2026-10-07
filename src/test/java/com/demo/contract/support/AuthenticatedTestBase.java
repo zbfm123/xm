@@ -29,6 +29,28 @@ public abstract class AuthenticatedTestBase {
         CurrentUser.set(201L, OTHER_TENANT, "other01", Role.LEGAL_STAFF);
     }
 
+    /**
+     * 以指定角色登录演示租户，用于验证**权限差异**。
+     *
+     * <h2>为什么需要它</h2>
+     *
+     * 2026-10-07 补上复核角色判定时（低置信度只能主管终审、只读账号一律拒绝），
+     * 发现基类只会用 {@code LEGAL_STAFF} 登录——**没有办法测"换个角色会怎样"**。
+     * 而权限这种东西，只测"有权限的人能做"是没有意义的：
+     * 真正要证明的是<b>"没权限的人做不了"</b>。
+     *
+     * <p>所以这里把角色做成参数。用户名只影响审计记录里的 operatorName，
+     * 用与角色对应的名字让失败时的日志更好读。
+     */
+    protected void loginAsDemoTenant(Role role) {
+        String username = switch (role) {
+            case LEGAL_STAFF -> "staff01";
+            case LEGAL_LEAD -> "lead01";
+            case DEMO_READONLY -> "viewer01";
+        };
+        CurrentUser.set(101L, DEMO_TENANT, username, role);
+    }
+
     @AfterEach
     void clearContext() {
         CurrentUser.clear();
