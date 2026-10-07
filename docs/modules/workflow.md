@@ -57,29 +57,71 @@ status: 已完成
 
 ## 3. 核心流程
 
-### 状态机
+### 状态机（⚠️ 本节曾把两个独立的状态机混成一个）
+
+本项目有**两个互不相干**的状态机，必须分开讲：
+
+#### ① 合同状态（`ContractStatus`，parse 模块）
 
 ~~~mermaid
 stateDiagram-v2
     [*] --> UPLOADED
     UPLOADED --> PARSING
-    PARSING --> PARSE_FAILED
     PARSING --> PARSED
-    PARSED --> EXTRACTING
-    EXTRACTING --> EXTRACTED
-    EXTRACTED --> RULE_CHECKED
-    RULE_CHECKED --> AI_REVIEWING
-    AI_REVIEWING --> AI_UNAVAILABLE
-    AI_REVIEWING --> REVIEWING
-    AI_UNAVAILABLE --> REVIEWING
-    REVIEWING --> COMPLETED
+    PARSING --> PARSE_FAILED
+    PARSED --> RULE_CHECKED
+    RULE_CHECKED --> COMPLETED
     PARSE_FAILED --> [*]
     COMPLETED --> [*]
 ~~~
 
-> [!note] 注意 `AI_UNAVAILABLE → REVIEWING`
-> AI 不可用**不是终态**，而是回到正常流程继续走人工复核。
-> 如果把它设成失败终态，就等于"AI 挂了整个审查就废了"，直接违反 I-04。
+取值：`UPLOADED` / `PARSING` / `PARSE_FAILED` / `PARSED` / `RULE_CHECKED` / `COMPLETED` / `DELETED`。
+终态：`PARSE_FAILED` / `COMPLETED` / `DELETED`。
+
+#### ② 审查任务状态（`ReviewTaskStatus`，**本模块的状态机**）
+
+~~~mermaid
+stateDiagram-v2
+    [*] --> PENDING
+    PENDING --> IN_PROGRESS
+    PENDING --> CANCELLED
+    IN_PROGRESS --> AWAITING_REVIEW
+    IN_PROGRESS --> AI_UNAVAILABLE
+    IN_PROGRESS --> CANCELLED
+    AI_UNAVAILABLE --> AWAITING_REVIEW
+    AI_UNAVAILABLE --> CANCELLED
+    AWAITING_REVIEW --> COMPLETED
+    AWAITING_REVIEW --> CANCELLED
+    COMPLETED --> [*]
+    CANCELLED --> [*]
+~~~
+
+取值：`PENDING` / `IN_PROGRESS` / `AI_UNAVAILABLE` / `AWAITING_REVIEW` / `COMPLETED` / `CANCELLED`。
+终态：`COMPLETED` / `CANCELLED`。
+
+> ⚠️ **本节曾经错在哪里**：原图把
+> `UPLOADED/PARSING/PARSED/RULE_CHECKED/EXTRACTING/EXTRACTED/AI_REVIEWING/REVIEWING`
+> 画成一条流水线 —— 前四个是 **合同**的状态，
+> 而 `EXTRACTING/EXTRACTED/AI_REVIEWING/REVIEWING` **两边都不属于**。
+> 两个状态机被画成一个，读起来像“上传一个文件会经过 9 个状态”——
+> 而真实的 6×6 = 36 个状态对、合法 14 条，测试是按 `ReviewTaskStatus` 穷举的。
+
+> [!note] 注意 `AI_UNAVAILABLE → AWAITING_REVIEW` 是**需要显式推进**的
+> AI 不可用**不是终态**，这一点原意是对的——否则就等于
+> “AI 挂了整个审查就废了”，直接违反 I-04。
+>
+> 但原文写的是“`AI_UNAVAILABLE → REVIEWING`（自动推进）”——
+> **实际不自动**：必须调用显式的 `proceed`（决策 D-57）。
+> 这是刻意的：“AI 不可用”后究竟是“等修复后重跑”还是“带着不完整的结论继续走”，
+> 是一个**要人做的决定**，不能由系统替他默认选一个。
+
+### 状态名的两套取值（别混）
+
+| 用在哪 | 枚举 | 值 |
+| --- | --- | --- |
+| 合同本身 | `ContractStatus` | UPLOADED / PARSING / PARSE_FAILED / PARSED / RULE_CHECKED / COMPLETED / DELETED |
+| 审查任务 | `ReviewTaskStatus` | PENDING / IN_PROGRESS / AI_UNAVAILABLE / AWAITING_REVIEW / COMPLETED / CANCELLED |
+| AI 结论 | `ai_finding.status`（字符串）| PENDING / LOW_CONFIDENCE / EVIDENCE_MISMATCH / EVIDENCE_AMBIGUOUS / ACCEPTED / REJECTED / ESCALATED / NEED_INFO / CONFIRMED_NO_RISK |
 
 ### 流程：人工复核
 
@@ -111,13 +153,13 @@ stateDiagram-v2
 
 | 情况 | 判定方式 | 系统行为 | 是否转人工 |
 | --- | --- | --- | --- |
-| 非法状态迁移 | 目标状态不在允许集合 | 抛 `ILLEGAL_TRANSITION`，状态不变 | 否（是 bug） |
-| 重复提交同内容 | `fileHash`/`textHash` 命中 | 返回已有任务，不新建 | 否 |
-| AI 不可用 | 收到 `AI_UNAVAILABLE` | 状态转 `REVIEWING`，界面提示，规则结论保留 | 是 |
+| 非法状态迁移 | 目标状态不在 `allowedTargets()` 里 | 抛 `IllegalArgumentException`（**没有 `ILLEGAL_TRANSITION` 这个错误码**），状态不变 | 否（是 bug）|
+| 重复提交同一请求 | 同一 `idempotencyKey` 命中 | 返回已有任务，不新建 | 否 |
+| AI 不可用 | 任务状态为 `AI_UNAVAILABLE` | 等待**显式调用 `POST /api/review-tasks/{id}/proceed`** 才转 `AWAITING_REVIEW`（不自动推进，见上文）；规则结论照常保留 | 是 |
 | 低置信度条目 | `confidence` < 阈值 | 强制升级，仅主管可终审 | 是 |
 | 复核权限不足 | 角色校验失败 | 403 `INSUFFICIENT_ROLE` | 否 |
 | 重复复核同一条目 | 条目已是终态 | 409 `ALREADY_REVIEWED` | 否 |
-| 批量任务单份失败 | 单份异常 | 记录并继续下一份 | 是 |
+| ~~批量任务单份失败~~ | —— **批量审查本期未实现**（主动砍掉，见 07 变更记录）| —— | —— |
 
 ## 4. 数据与接口
 
@@ -127,10 +169,10 @@ stateDiagram-v2
 | --- | --- | --- | --- | --- | --- |
 | `ReviewTask.id` | Long | 审查任务 id | 是 | workflow | 全链路 |
 | `ReviewTask.status` | Enum | 见状态机 | 是 | workflow | 前端、report |
-| `ReviewTask.idempotencyKey` | String | `tenantId + fileHash` | 是 | workflow | 幂等 |
-| `FindingDecision` | 表 | 条目当前裁决态（可更新） | 是 | 复核 | report |
+| `ReviewTask.idempotencyKey` | String | **调用方传入**的幂等键（必填）| 是 | 调用方 | 幂等（`uk_review_task_idem` 唯一索引）|
+| ~~`FindingDecision`~~ | —— | **这张表不存在**。条目的当前裁决态就在 `ai_finding.status` 字段上 | —— | 复核 | report |
 | `ReviewAction` | 表 | **只追加**的审计记录 | 是 | 复核 | report、审计 |
-| `ReviewAction.findingSnapshot` | JSON | 复核时的原始 AI 建议快照 | 是 | workflow | 审计可追溯 |
+| ~~`ReviewAction.findingSnapshot`~~ | —— | **没有这个列**。`review_action` 只记录动作与状态变化（previous/new_status + reason），不存 AI 建议快照 | —— | —— | —— |
 | `ReviewAction.operatorId/createdAt` | — | 操作人、时间 | 是 | auth 上下文 | 审计 |
 
 ### 接口/事件
@@ -139,20 +181,20 @@ stateDiagram-v2
 | --- | --- | --- | --- | --- | --- |
 | `POST /api/contracts/{id}/review-tasks` | 前端 | contractId | `{taskId, status}` | 409（已存在，返回已有 id） | 幂等 |
 | `GET /api/review-tasks/{taskId}` | 前端 | taskId | 任务状态 + 条目列表 | 404 | 强制 tenantId |
-| `POST /api/findings/{findingId}/decision` | 前端 | action, reason | 204 | 403 / 409 | 只追加 |
-| `POST /api/review-tasks/batch` | 前端 | contractIds | batchId | 400 | P2 |
-| `POST /api/batch-tasks/{batchId}/pause` | 前端 | — | 204 | 404 | P2，幂等 |
-| 领域事件（订阅） | 各模块 | `ContractParsed` / `ElementsExtracted` / `RuleCheckCompleted` / `AiReviewCompleted` | 推进状态 | — | 事件驱动 |
+| `POST /api/contracts/{id}/reviews` | 前端 | action, reason, findingId, idempotencyKey | 201/记录 | 403 / 409 | 只追加（实际路径）|
+| ~~`POST /api/review-tasks/batch`~~ | —— | **批量审查未实现** | —— | —— | P2，本期砍掉 |
+| ~~`POST /api/batch-tasks/{batchId}/pause`~~ | —— | **未实现** | —— | —— | P2，本期砍掉 |
+| 领域事件 | —— | **本项目不用事件驱动**：模块间是直接方法调用（模块化单体，见 D-01），状态推进由调用方显式触发 | —— |
 
 ## 5. 状态、错误码与排查
 
 | 错误码 | 触发条件 | 用户可见结果 | 系统行为 | 优先排查位置 | 是否可重试 |
 | --- | --- | --- | --- | --- | --- |
-| `ILLEGAL_TRANSITION` | 状态机不允许的迁移 | 500（属实现缺陷） | 状态不变，记录告警 | 状态机定义 | 否 |
+| ~~`ILLEGAL_TRANSITION`~~ | 状态机不允许的迁移 | **该错误码不存在**：`canMoveTo` 返回 false，异常情况抛 `IllegalArgumentException` | 状态不变 | 状态机定义 | 否 |
 | `ALREADY_REVIEWED` | 重复复核终态条目 | "该条已复核" | 拒绝写入 | 裁决状态校验 | 否 |
 | `INSUFFICIENT_ROLE` | 角色不足 | "无权终审该条目" | 403 | 角色校验 | 否 |
-| `AI_UNAVAILABLE` | AI 依赖不可用 | "AI 审查不可用，已跳过" | 转 `REVIEWING`，规则结论保留 | AI 配置 | 是 |
-| `TASK_IN_PROGRESS` | 已有进行中任务 | "已有进行中的审查任务" | 返回已有 taskId | 幂等键 | 否 |
+| `AI_UNAVAILABLE` | AI 依赖不可用 | “AI 审查不可用，已跳过” | 状态转 `AI_UNAVAILABLE`，**需显式 proceed 才继续**；规则结论保留 | AI 配置 | 是 |
+| ~~`TASK_IN_PROGRESS`~~ | 已有进行中任务 | **该错误码不存在**：幂等命中时**直接返回已有任务**，不报错 | —— | 幂等键 | 否 |
 | `BATCH_PARTIAL_FAILURE` | 批量中单份失败 | "第 N 份失败：原因" | 继续执行其余 | 批量日志 | 是 |
 
 ## 6. 测试与验收
@@ -162,7 +204,7 @@ stateDiagram-v2
 | 场景 | 类型 | 前置条件 | 操作 | 预期结果 |
 | --- | --- | --- | --- | --- |
 | 合法迁移 | 单元 | 状态 `PARSED` | 触发抽取完成 | 迁移到 `EXTRACTED` |
-| 非法迁移被拒 | 单元 | 状态 `UPLOADED` | 直接触发 `COMPLETED` | `ILLEGAL_TRANSITION`，状态不变 |
+| 非法迁移被拒 | 单元 | 状态 `UPLOADED` | 直接触发 `COMPLETED` | `canMoveTo` 返回 false（**不是一个错误码**），状态不变 |
 | 状态迁移穷举 | 单元 | 全部状态对 | 遍历所有组合 | 仅白名单组合成功 |
 | 幂等：重复提交 | 单元 | 已存在同 key 任务 | 再次提交 | 返回同一 taskId，不新建 |
 | AI 不可用降级 | 单元 | `AI_UNAVAILABLE` 事件 | 处理 | 转 `REVIEWING`，**不是终态** |
@@ -194,7 +236,7 @@ stateDiagram-v2
 - 主要代码位置：`src/main/java/com/demo/contract/workflow`（`statemachine/`、`review/`、`batch/`）
 - 测试位置：`src/test/java/com/demo/contract/workflow`
 - 数据库迁移：`V7__review_task.sql`、`V8__review_action.sql`
-- 相关配置：`app.workflow.*`、`app.ai.lowConfidenceThreshold`
+- 相关配置：`app.workflow.*`、`app.ai.low-confidence-threshold（application.yml:100）`
 - 关联任务：[T-008（删除级联）、T-017 ~ T-019](../04-tasks-and-acceptance.md#待开始)
 
 ## 8. 长期决策与待办
