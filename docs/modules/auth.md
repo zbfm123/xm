@@ -140,7 +140,8 @@ status: 已完成
 
 - 主要代码位置：`src/main/java/com/demo/contract/auth`
 - 测试位置：`src/test/java/com/demo/contract/auth`
-- 数据库迁移：`src/main/resources/db/migration/V1__tenant_user.sql`
+- 数据库表：`tenant` / `sys_user`（建表在 `src/main/resources/db/schema.sql`）
+  > ⚠️ 本行原写作 `db/migration/V1__tenant_user.sql`—— **本项目不用 Flyway**（D-08），没有 migration 目录。
 - 相关配置：`application.yml` 中 `app.jwt.*`、`app.security.*`
 - 关联任务：[T-004 / T-005](../04-tasks-and-acceptance.md#待开始)
 

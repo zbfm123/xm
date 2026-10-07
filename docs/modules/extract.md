@@ -67,7 +67,7 @@ status: 已完成
    - 非法 JSON / 字段缺失 / 类型不符 → `SCHEMA_INVALID`，**丢弃本次输出，不填默认值**。
 5. 对每个字段的 quote 执行**证据对齐**（见下）：
    - 命中 → 记录归一化区间 → 通过 `offsetMap` 回映射为原文区间；
-   - 未命中 → 该字段置 `UNKNOWN`，原因 `EVIDENCE_NOT_FOUND`。
+   - 未命中 → 该字段置 `UNKNOWN`，原因记在 statusReason 里。
 6. 计算字段状态：
    - 对齐成功且模型置信度 ≥ 阈值 → `CONFIRMED`；
    - 对齐成功但置信度 < 阈值 → `LOW_CONFIDENCE`（进入人工确认）；
@@ -86,7 +86,7 @@ status: 已完成
 | L1 | 精确匹配 | quote 在归一化文本中唯一出现 → 直接取区间 |
 | L2 | 归一化匹配 | 双方统一全角/空白/换行后再匹配；**命中后必须把区间回映射到原文坐标** |
 | L3 | 模糊匹配 | 编辑距离/最长公共子串比例 ≥ 阈值 → 取最优区间，并把置信度**下调** |
-| 失败 | 以上都不成立 | 返回 `EVIDENCE_NOT_FOUND`，**不返回近似区间** |
+| 失败 | 以上都不成立 | 该字段置 `UNKNOWN`（**不返回近似区间**）|
 
 > [!warning] 三条纪律
 > 1. 匹配到**多处**且无法消歧时，不算成功，走 `EVIDENCE_AMBIGUOUS`。
@@ -100,7 +100,7 @@ status: 已完成
 | 模型超时 | 客户端超时 | 最多重试 1 次 → `AI_TIMEOUT` | 是 |
 | 模型限流 | 429 | 最多重试 1 次 → `AI_RATE_LIMITED` | 是 |
 | 响应非法 | schema 校验失败 | `SCHEMA_INVALID`，丢弃，不落数据 | 是 |
-| quote 不存在 | 对齐 L1~L3 全失败 | 字段 `UNKNOWN` + `EVIDENCE_NOT_FOUND` | 是 |
+| quote 不存在 | 对齐 L1~L3 全失败 | 字段 `UNKNOWN`（原因写在 statusReason）| 是 |
 | quote 多处命中 | 匹配结果 > 1 且无法消歧 | `EVIDENCE_AMBIGUOUS` | 是 |
 | 缓存不可用 | Redis 异常 | **直连模型并继续**（缓存是优化，不是必需） | 否 |
 
@@ -138,9 +138,9 @@ status: 已完成
 | `SCHEMA_INVALID` | 响应结构不符约定 | "AI 返回格式异常" | 丢弃本次输出，无脏数据 | schema 校验器 + 提示词版本 | 是（人工触发） |
 | `AI_TIMEOUT` | 调用超时 | "抽取超时，请重试" | 重试 1 次后放弃 | LLM 客户端超时配置 | 是 |
 | `AI_RATE_LIMITED` | 429 | "AI 服务繁忙" | 重试 1 次 + 退避 | 限流配置 | 是 |
-| `EVIDENCE_NOT_FOUND` | 对齐失败 | "该字段无法定位到原文，请人工确认" | 字段 `UNKNOWN` | 对齐算法 + 归一化映射 | 是（人工） |
+| 对齐失败（**没有 `EVIDENCE_NOT_FOUND` 这个状态名**，实际就是 `UNKNOWN`）| "该字段无法定位到原文，请人工确认" | 字段 `UNKNOWN` | 对齐算法 + 归一化映射 | 是（人工） |
 | `EVIDENCE_AMBIGUOUS` | 多处命中 | "该字段存在多个可能位置" | 转人工选择 | 对齐算法 | 是 |
-| `FIELD_CONFLICT` | 正则与模型结果不一致 | "金额存在两种取值，请确认" | 两值都保留，转人工 | 正则 + 模型交叉校验 | 是 |
+| ~~`FIELD_CONFLICT`~~ | 正则与模型结果不一致 | **该状态不存在**：本项目**没有正则与模型的交叉校验**，也没有两值保留机制 | —— | | 是 |
 
 > [!warning] 绝对不允许
 > `catch (Exception e) { return defaultValue; }`
@@ -155,11 +155,11 @@ status: 已完成
 | L1 精确匹配 | 单元 | quote 与原文一致 | 对齐 | 返回正确区间 |
 | L2 归一化匹配 | 单元 | quote 含全角标点 | 对齐 | 命中且区间**回映射到原文坐标**（长度变化场景） |
 | L3 模糊匹配降置信 | 单元 | quote 有 1 字差异 | 对齐 | 命中但 `confidence` 下调 |
-| quote 不存在 | 单元 | 构造不存在的 quote | 对齐 | `EVIDENCE_NOT_FOUND`，不返回近似区间 |
+| quote 不存在 | 单元 | 构造不存在的 quote | 对齐 | 字段 `UNKNOWN`，不返回近似区间 |
 | quote 多处命中 | 单元 | 同一句出现两次 | 对齐 | `EVIDENCE_AMBIGUOUS` |
 | schema 非法 | 单元 | JSON 缺字段/类型错 | 校验 | `SCHEMA_INVALID`，不产生要素 |
 | 低置信度状态 | 单元 | 置信度低于阈值 | 计算状态 | `LOW_CONFIDENCE` |
-| 正则模型冲突 | 单元 | 两者结果不同 | 交叉校验 | `FIELD_CONFLICT`，两值保留 |
+| ~~正则模型冲突~~ | —— | —— | **未实现**（无交叉校验）| —— |
 | 缓存命中零调用 | 单元 | 同 textHash 二次调用 | 抽取 | 外部调用次数 = 0 |
 
 ### 集成测试
@@ -181,7 +181,8 @@ status: 已完成
 
 - 主要代码位置：`src/main/java/com/demo/contract/extract`（含 `evidence/EvidenceAligner.java`）
 - 测试位置：`src/test/java/com/demo/contract/extract`
-- 桩数据：`src/test/resources/wiremock/`
+- 桩数据：**在代码里**（`MockAiClient`）。
+  > ⚠️ 本行原写作 `src/test/resources/wiremock/`—— **本项目不用 WireMock**（D-10）。
 - 数据库迁移：`V4__contract_element.sql`
 - 相关配置：`app.ai.*`（超时、重试次数、置信度阈值、模型版本）
 - 关联任务：[T-013 ~ T-015](../04-tasks-and-acceptance.md#待开始)

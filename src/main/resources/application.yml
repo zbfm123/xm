@@ -98,7 +98,10 @@ app:
 
   workflow:
     low-confidence-threshold: 0.60
-    high-confidence-threshold: 0.80
+    # ⚠️ 这里曾有 high-confidence-threshold: 0.80，但**代码里零引用**（全仓 grep 无命中）。
+    #    实际只做二分：< low-confidence-threshold 标 LOW_CONFIDENCE，否则 PENDING。
+    #    留着一个从不生效的配置项比删掉更猜：读的人会以为真的有三档裁决。
+    #    真要做三档时再加回来，并同时改到代码与测试里。
 
 logging:
   level:

@@ -68,11 +68,18 @@ status: 已完成
 6. **置信度评分**：
    `finalConfidence = modelSelfScore × matchLevelWeight × lengthPenalty`
    - `matchLevelWeight`：L1 = 1.0，L2 = 0.9，L3 = 0.7
-   - `lengthPenalty`：quote 过短（如 < 8 字）时下调，避免"一句话命中全文"的伪证据
+   - `lengthPenalty`：quote **短于 12 字**时乘 0.85（`FindingSchemaValidator.SHORT_QUOTE_LENGTH = 12` / `SHORT_QUOTE_PENALTY = 0.85`），
+     避免“引四个字就说全文都在讲这个”的伪证据
+     > ⚠️ 本行原写作“如 < 8 字”，与实际值不符。
 7. 状态裁决：
-   - `finalConfidence ≥ highThreshold` → `PENDING`（等待人工采信）
-   - `lowThreshold ≤ finalConfidence < highThreshold` → `PENDING` + 标记需主管复核
-   - `< lowThreshold` → `LOW_CONFIDENCE`，强制人工，不进报告正文
+   - `finalConfidence ≥ lowThreshold` → `PENDING`（候选，等待人工采信）
+   - `finalConfidence < lowThreshold` → `LOW_CONFIDENCE`（**强制主管终审**，不进报告正文）
+
+   > ⚠️ **实际只有两档，不是三档。** 这里曾写成
+   > 「`≥ highThreshold` → PENDING」「`[low, high)` → 标记需主管复核」「`< low` → LOW_CONFIDENCE」，
+   > 但 `application.yml` 里的 `high-confidence-threshold` **代码里从来没被引用**（已删）。
+   > `AiReviewService` 只做一次比较：`confidence < lowConfidenceThreshold`。
+   > **一个不生效的阈值配置比没有更糟**：它会让人以为中间那档真的存在。
 8. 落 `ai_finding`，附模型版本与提示词版本。**所有条目初始状态都不是"生效"。**
 
 ### 风险类型（固定枚举）
@@ -184,7 +191,8 @@ status: 已完成
 - 主要代码位置：`src/main/java/com/demo/contract/aireview`
 - 证据对齐复用：`src/main/java/com/demo/contract/extract/evidence/`
 - 测试位置：`src/test/java/com/demo/contract/aireview`
-- 桩数据：`src/test/resources/wiremock/ai-review-*.json`
+- 桩数据：**在代码里**（`MockAiClient`），不是 JSON 文件。
+  > ⚠️ 本行原写作 `src/test/resources/wiremock/`—— **本项目不用 WireMock**（D-10），该目录不存在。
 - 数据库迁移：`V6__ai_finding.sql`
 - 相关配置：`app.ai.*`（`enabled`、超时、阈值、预算、模型与提示词版本）
 - 关联任务：[T-014、T-016](../04-tasks-and-acceptance.md#待开始)
