@@ -21,7 +21,7 @@ tags:
 | --- | --- |
 | 客户 / 业务方 | 面试官 + 你自己（用简历筛选标准当验收标准） |
 | 真实法院业务痛点 | 企业法务人工审合同的低效环节 |
-| 真实 Chrome 验收 | `docker compose up` 一键起 + 可复现的演示脚本 |
+| 真实 Chrome 验收 | **本机 Windows 服务（MySQL80 + Redis）+ 一键启动** + 可复现的演示脚本<br>⚠️ 原计划 `docker compose up`，因本机未装 Docker 改为直连本机服务（变更 C-11）|
 | 业务结果由我判断 | "这段代码我能不能在 3 分钟内讲明白" 由我判断 |
 
 ## 使用顺序
@@ -71,9 +71,14 @@ tags:
 ### 已确认的假设
 
 - **H-01** 领域选"合同智能审查"（理由见 [01-需求与范围确认](01-requirements-and-scope.md#0-选题理由)）—— ✅ 已确认
-- **H-02** 技术栈：Java 21 + Spring Boot 3.3 + MyBatis-Plus + MySQL + Redis + Vue 3，**不含 Flyway / MinIO / Spring AI / Testcontainers / WireMock** —— ✅ 已按 C-3、C-4 修订
+- **H-02** 技术栈：Java 21 + Spring Boot 3.3 + MyBatis-Plus + MySQL + Redis，**不含 Flyway / MinIO / Spring AI / Testcontainers / WireMock** —— ✅ 已按 C-3、C-4 修订
 - **H-03** AI 走云端 API，具体为 **DeepSeek** —— ✅ 已确认（C-2）
 - **H-04** 规模：**国庆结束前 5 天冲刺**，22 个 P0 任务 —— ✅ 已按 C-1 修订
+> ⚠️ **H-02 里的 Vue 3 最终没有采用**：改成**零构建多页前端**
+> （5 个 HTML + 1 JS + 1 CSS，由 Spring Boot 直接托管，仓库里没有 `package.json`）。
+> 理由与代价见 [README 的「前端为什么不上 Vue」](../README.md#前端为什么不上-vue)。
+> 这类「假设变更」如果只留在变更记录里而不在假设列表里标注，读的人会以为真的用了 Vue。
+
 - **H-05** **DeepSeek Key 可用，额度 15 元**（2026-10-03 确认）—— 足够演示（预计消耗 < ¥1），但必须防调试死循环烧额度，见 [D-12](02-architecture.md#关键决策记录)
 
 > [!warning] 本次交付的取舍
