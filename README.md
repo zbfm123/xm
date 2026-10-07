@@ -250,7 +250,7 @@ curl.exe -s http://localhost:8080/api/auth/me -H "Authorization: Bearer <token>"
 | `POST /api/contracts` | 上传（`multipart/form-data`，字段 `file` + 可选 `title`）。同一文件重复上传返回同一 id 并置 `idempotent=true` |
 | `POST /api/contracts/{id}/parse` | 解析文本。成功返回 `success=true` + `textHash`；失败也返回 **200** + `success=false` + `errorCode`（加密 / 扫描件 / 损坏）——这是业务结果，不是请求错误 |
 | `GET /api/contracts/{id}/text` | 读取归一化正文，供人工查看与核对证据位置 |
-| `GET /api/contracts` | 分页列表。参数：`keyword`（匹配标题或文件名）、`status`、`page`（从 0 开始）、`size`（1~100） |
+| `GET /api/contracts` | 分页列表。参数：`keyword`（匹配标题或文件名）、`status`、`page`（**从 1 开始**；传 0 会被夹到第 1 页）、`size`（1~100） |
 | `GET /api/contracts/{id}` | 详情。**不返回存储路径与哈希** |
 | `GET /api/contracts/{id}/file` | 下载原始文件 |
 | `DELETE /api/contracts/{id}` | 删除（软删除 + 级联清理文件、正文、规则结论、该文本哈希的 AI 缓存）。幂等 |
@@ -444,7 +444,7 @@ curl.exe -s -X POST http://localhost:8080/api/contracts/1/parse -H "Authorizatio
 curl.exe -s http://localhost:8080/api/contracts/1/text -H "Authorization: Bearer <token>"
 
 # 列表（关键字 + 状态筛选）
-curl.exe -s "http://localhost:8080/api/contracts?keyword=采购&status=PARSED&page=0&size=20" `
+curl.exe -s "http://localhost:8080/api/contracts?keyword=采购&status=PARSED&page=1&size=20" `
   -H "Authorization: Bearer <token>"
 ```
 
@@ -480,7 +480,7 @@ mvn test
 
 测试使用 H2 内存库与 Mock 桩，**不依赖本地 MySQL / Redis，也不消耗 AI 额度**。
 
-当前覆盖：**99 个用例**，包含：
+当前覆盖：**287 个用例**，包含：
 
 - **`TenantScopeArchitectureTest`** —— 扫描所有 Mapper 的 SQL，缺 `tenant_id` 即构建失败，锁死多租户隔离
 - `ContractTextExtractorTest` —— 用**真实 PDF / DOCX**（含加密、表格）验证提取

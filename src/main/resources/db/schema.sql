@@ -260,3 +260,44 @@ CREATE TABLE IF NOT EXISTS contract_text (
     UNIQUE KEY uk_contract_text_contract (contract_id),
     KEY idx_contract_text_tenant (tenant_id)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT '合同正文';
+
+
+-- ===================================================================
+-- 审计只追加的**第 2 层**：数据库触发器（决策 D-48 / 任务 T-018）
+-- ===================================================================
+--
+-- 三层保证，一层比一层硬：
+--   1. 接口层：ReviewActionMapper 只有 insert/select，由 AppendOnlyAuditContractTest
+--      反射扫描强制（有人加了 update/delete 方法，构建就失败）
+--   2. 数据库层：本文件的两个触发器 —— 防住手工 SQL、运维脚本、
+--      以及将来绕过 Mapper 的新代码
+--   3. 密码学层：哈希链 —— 防住有 root 权限、能关掉触发器的人（改动可被检测）
+--
+-- ⚠️ 用 SIGNAL SQLSTATE '45000' 明确抛错，而不是静默忽略：
+--    静默忽略会让"改失败了"看起来像"改成功了"。
+--
+-- ⚠️ 这两个触发器**只在 MySQL 生效**：集成测试跑在 H2 上，
+--    H2 不支持 MySQL 的 SIGNAL 语法，所以测试库不建触发器。
+--    也就是说第 2 层**不在自动化测试的覆盖范围内**——
+--    必须对着真实 MySQL 验证，见 scripts/verify-append-only.ps1。
+--
+-- ⚠️ 历史教训：这一层曾经**在文档里存在、在 schema.sql 里丢失**：
+--    T-018 的验收记录写着"UPDATE / DELETE 均被 ERROR 1644 (45000) 拒绝"，
+--    但 schema.sql 里 grep 不到任何 TRIGGER。
+--    症状是"文档说有三层、实际只有两层"，而且**不会报错**。
+--    所以这里同时补了 verify-append-only.ps1，让它可被一条命令复核。
+-- -------------------------------------------------------------------
+
+DROP TRIGGER IF EXISTS trg_review_action_no_update;
+CREATE TRIGGER trg_review_action_no_update
+    BEFORE UPDATE ON review_action
+    FOR EACH ROW
+    SIGNAL SQLSTATE '45000'
+    SET MESSAGE_TEXT = 'review_action 只追加：禁止 UPDATE（决策 D-48）';
+
+DROP TRIGGER IF EXISTS trg_review_action_no_delete;
+CREATE TRIGGER trg_review_action_no_delete
+    BEFORE DELETE ON review_action
+    FOR EACH ROW
+    SIGNAL SQLSTATE '45000'
+    SET MESSAGE_TEXT = 'review_action 只追加：禁止 DELETE（决策 D-48）';
